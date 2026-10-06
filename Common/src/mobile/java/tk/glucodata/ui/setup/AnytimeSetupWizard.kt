@@ -16,6 +16,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -30,6 +31,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
@@ -41,6 +43,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -82,6 +85,7 @@ import tk.glucodata.ui.util.BleDeviceScanner
 import tk.glucodata.ui.util.rememberBleScanner
 
 private enum class AnytimeSetupStep { SCAN, CONNECTING, SUCCESS }
+private enum class AnytimeDeviceFilter { SENSORS, ALL, UNKNOWN }
 
 private data class AnytimeScanCandidate(
     val address: String,
@@ -263,7 +267,8 @@ private fun AnytimeScanStep(
     var scanRetryKey by remember { mutableStateOf(0) }
     var scanError by remember { mutableStateOf<BleDeviceScanner.ScanStartError?>(null) }
     var requestedPermissionOnce by remember { mutableStateOf(false) }
-    var showAllDevices by remember { mutableStateOf(false) }
+    var deviceSearch by remember { mutableStateOf("") }
+    var deviceFilter by remember { mutableStateOf(AnytimeDeviceFilter.SENSORS) }
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
     ) {
@@ -297,7 +302,7 @@ private fun AnytimeScanStep(
         }
     }
 
-    DisposableEffect(scanPermissionGranted, bluetoothEnabled, scanRetryKey, showAllDevices) {
+    DisposableEffect(scanPermissionGranted, bluetoothEnabled, scanRetryKey) {
         if (!scanPermissionGranted || !bluetoothEnabled) {
             scanner.stopScan()
             devices = emptyList()
@@ -337,16 +342,30 @@ private fun AnytimeScanStep(
                 val isLikelyAnytime = advertisesPrimary || nameLooksAnytime
                 val familyEntry = AnytimeConstants.resolveFamily(bestName)
 
-                if (!showAllDevices && !isLikelyAnytime) return@startScan
-
-                if (devices.none { it.address.equals(address, ignoreCase = true) }) {
-                    devices = devices + AnytimeScanCandidate(
-                        address = address,
-                        displayName = bestName,
-                        isLikelyAnytime = isLikelyAnytime,
-                        advertisesPrimaryService = advertisesPrimary,
-                        familyEntry = familyEntry,
-                    )
+                val candidate = AnytimeScanCandidate(
+                    address = address,
+                    displayName = bestName,
+                    isLikelyAnytime = isLikelyAnytime,
+                    advertisesPrimaryService = advertisesPrimary,
+                    familyEntry = familyEntry,
+                )
+                val existingIndex = devices.indexOfFirst {
+                    it.address.equals(address, ignoreCase = true)
+                }
+                if (existingIndex < 0) {
+                    devices = devices + candidate
+                } else {
+                    val existing = devices[existingIndex]
+                    val candidateIsMoreSpecific =
+                        candidate.familyEntry.family != AnytimeConstants.Family.UNKNOWN &&
+                                existing.familyEntry.family == AnytimeConstants.Family.UNKNOWN
+                    val candidateAddsIdentity =
+                        candidate.displayName.isNotBlank() && existing.displayName.isBlank()
+                    val candidateAddsRecognition =
+                        candidate.isLikelyAnytime && !existing.isLikelyAnytime
+                    if (candidateIsMoreSpecific || candidateAddsIdentity || candidateAddsRecognition) {
+                        devices = devices.toMutableList().also { it[existingIndex] = candidate }
+                    }
                 }
             },
             onError = { error ->
@@ -360,6 +379,39 @@ private fun AnytimeScanStep(
         )
         onDispose { scanner.stopScan() }
     }
+
+    val normalizedSearch = deviceSearch
+        .trim()
+        .lowercase()
+        .filter(Char::isLetterOrDigit)
+    val visibleDevices = devices
+        .asSequence()
+        .filter { device ->
+            when (deviceFilter) {
+                AnytimeDeviceFilter.SENSORS -> device.isLikelyAnytime
+                AnytimeDeviceFilter.ALL -> true
+                AnytimeDeviceFilter.UNKNOWN ->
+                    device.familyEntry.family == AnytimeConstants.Family.UNKNOWN
+            }
+        }
+        .filter { device ->
+            if (normalizedSearch.isEmpty()) {
+                true
+            } else {
+                sequenceOf(
+                    device.displayName,
+                    device.address,
+                    device.familyEntry.family.displayName,
+                ).any { value ->
+                    value.lowercase().filter(Char::isLetterOrDigit).contains(normalizedSearch)
+                }
+            }
+        }
+        .sortedWith(
+            compareByDescending<AnytimeScanCandidate> { it.isLikelyAnytime }
+                .thenBy { it.displayName.ifBlank { it.address } }
+        )
+        .toList()
 
     Column(modifier = Modifier.fillMaxSize()) {
         LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
@@ -377,25 +429,45 @@ private fun AnytimeScanStep(
                 tk.glucodata.ui.CgmReadinessSetupBanner(onOpenReadiness = onNavigateToReadiness)
             }
             item {
-                Row(
+                Text(
+                    stringResource(R.string.anytime_searching_sensors),
+                    style = MaterialTheme.typography.titleMedium,
+                )
+            }
+            item {
+                OutlinedTextField(
+                    value = deviceSearch,
+                    onValueChange = { deviceSearch = it },
+                    label = { Text(stringResource(R.string.search)) },
+                    singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
+                )
+            }
+            item {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    Text(
-                        stringResource(R.string.anytime_searching_sensors),
-                        modifier = Modifier.weight(1f),
-                        style = MaterialTheme.typography.titleMedium,
+                    FilterChip(
+                        selected = deviceFilter == AnytimeDeviceFilter.SENSORS,
+                        onClick = { deviceFilter = AnytimeDeviceFilter.SENSORS },
+                        label = { Text(stringResource(R.string.show_sensors_only)) },
                     )
-                    TextButton(onClick = { showAllDevices = !showAllDevices }) {
-                        Text(
-                            if (showAllDevices) stringResource(R.string.show_sensors_only)
-                            else stringResource(R.string.see_all_devices)
-                        )
-                    }
+                    FilterChip(
+                        selected = deviceFilter == AnytimeDeviceFilter.ALL,
+                        onClick = { deviceFilter = AnytimeDeviceFilter.ALL },
+                        label = { Text(stringResource(R.string.range_all)) },
+                    )
+                    FilterChip(
+                        selected = deviceFilter == AnytimeDeviceFilter.UNKNOWN,
+                        onClick = { deviceFilter = AnytimeDeviceFilter.UNKNOWN },
+                        label = { Text(stringResource(R.string.unknown)) },
+                    )
                 }
             }
-            items(devices) { device ->
-                if (!showAllDevices && !device.isLikelyAnytime) return@items
+            items(visibleDevices, key = { it.address }) { device ->
                 val title = device.displayName.ifBlank { stringResource(R.string.unknown) }
                 val supporting = when {
                     device.familyEntry.family != AnytimeConstants.Family.UNKNOWN ->
