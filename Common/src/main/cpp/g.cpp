@@ -527,13 +527,18 @@ fromjava(healthConnectfromSensorptr)(JNIEnv *env, jclass cl, jlong sensorptr) {
   return res;
 }
 extern "C" JNIEXPORT void JNICALL fromjava(healthConnectWritten)(
-    JNIEnv *env, jclass cl, jlong sensorptr, jint pos) {
+    JNIEnv *env, jclass cl, jlong sensorptr, jint expectedStart, jint pos) {
   if (!sensorptr) {
     return;
   }
-  reinterpret_cast<SensorGlucoseData *>(sensorptr)
-      ->getinfo()
-      ->healthconnectiter = pos;
+  auto *info = reinterpret_cast<SensorGlucoseData *>(sensorptr)->getinfo();
+  const uint16_t expected = static_cast<uint16_t>(expectedStart);
+  const uint16_t next = static_cast<uint16_t>(pos);
+  uint16_t current = __atomic_load_n(&info->healthconnectiter, __ATOMIC_RELAXED);
+  // A history write may have rewound the cursor while this insert was in
+  // flight. Never overwrite that rewind with the end of the newer batch.
+  __atomic_compare_exchange_n(&info->healthconnectiter, &current, next, false,
+                              __ATOMIC_RELAXED, __ATOMIC_RELAXED);
 }
 extern "C" JNIEXPORT jlong JNICALL fromjava(getSensorStartmsec)(JNIEnv *env,
                                                                 jclass cl,
