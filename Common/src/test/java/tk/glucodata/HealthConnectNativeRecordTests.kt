@@ -71,6 +71,22 @@ class HealthConnectNativeRecordTests {
     }
 
     @Test
+    fun glucoseReplayUsesStableHealthConnectClientRecordIds() {
+        val list = flattened("Common/src/mobile/java/tk/glucodata/GlucoseList.java")
+        val iterator = flattened("Common/src/mobile/java/tk/glucodata/GlucoseIterator.java")
+        val health = flattened("Common/src/mobile/java/tk/glucodata/HealthConnection.kt")
+
+        assertTrue(list.contains("String sensorName"))
+        assertTrue(
+            iterator.contains(
+                "\"juggluco-ng:glucose:\" + base.sensorName + \":\" + time"
+            )
+        )
+        assertTrue(iterator.contains("Metadata.unknownRecordingMethod("))
+        assertTrue(health.contains("GlucoseList(meta, sensorptr, start, take, sensorName)"))
+    }
+
+    @Test
     fun rebaseCarriesTheHealthConnectCursorIntoTheNewWindow() {
         val hpp = flattened("Common/src/main/cpp/SensorGlucoseData.hpp")
         val rebase = hpp.substring(hpp.indexOf("void rebaseDirectStreamWindow(uint32_t starttime) {"))
