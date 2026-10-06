@@ -79,28 +79,24 @@ class HealthConnection(private val client: HealthConnectClient) {
         if (!startWorker) return
 
         scope.launch {
-            try {
-                while (true) {
-                    val request = synchronized(exportLock) {
-                        val next = pendingExports.entries.firstOrNull()
-                        if (next == null) {
-                            exportWorkerActive = false
-                            null
-                        } else {
-                            pendingExports.remove(next.key)
-                            next.key to next.value
-                        }
-                    } ?: break
+            while (true) {
+                val request = synchronized(exportLock) {
+                    val next = pendingExports.entries.firstOrNull()
+                    if (next == null) {
+                        exportWorkerActive = false
+                        null
+                    } else {
+                        pendingExports.remove(next.key)
+                        next.key to next.value
+                    }
+                } ?: return@launch
+                try {
                     exportOneSensor(request.first, request.second)
+                } catch (th: Throwable) {
+                    // One sensor failing must not strand a later trigger in the
+                    // queue. The cursor only advances after successful inserts.
+                    Log.stack(LOG_ID, "writeAll", th)
                 }
-            } catch (th: Throwable) {
-                Log.stack(LOG_ID, "writeAll", th)
-            } finally {
-                val next = synchronized(exportLock) {
-                    exportWorkerActive = false
-                    pendingExports.entries.firstOrNull()?.let { it.key to it.value }
-                }
-                if (next != null) writeAllIns(next.first, next.second)
             }
         }
     }
