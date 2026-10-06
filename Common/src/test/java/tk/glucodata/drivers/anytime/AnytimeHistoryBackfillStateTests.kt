@@ -83,16 +83,22 @@ class AnytimeHistoryBackfillStateTests {
         assertFalse(
             shouldReanchorTimeline(
                 liveId = 8_175,
-                previousMaxId = 8_175,
                 haveTimelineStart = restored > 0L,
             )
         )
-        // A genuinely newer id still moves the timeline.
-        assertTrue(
+        // A genuinely newer id advances on the established id/cadence clock; BLE
+        // callback arrival jitter must not move the session start.
+        assertFalse(
             shouldReanchorTimeline(
                 liveId = 8_176,
-                previousMaxId = 8_175,
                 haveTimelineStart = restored > 0L,
+            )
+        )
+        // A new session clears the anchor before its first live id arrives.
+        assertTrue(
+            shouldReanchorTimeline(
+                liveId = 12,
+                haveTimelineStart = false,
             )
         )
     }
