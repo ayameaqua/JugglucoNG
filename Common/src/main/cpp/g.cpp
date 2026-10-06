@@ -1510,6 +1510,15 @@ static bool storeGlucoseStreamSample(SensorGlucoseData *hist, const char *sensor
     }
     __atomic_store_n(&info->nightiter, (uint16_t)lifeCount, __ATOMIC_RELAXED);
   }
+  if (fillsPollGap && lifeCount <= UINT16_MAX &&
+      info->healthconnectiter > lifeCount) {
+    if (!quiet) {
+      LOGGER("%s: poll %d backfilled behind Health Connect cursor %u; rewinding\n",
+             sensorId, lifeCount, (unsigned)info->healthconnectiter);
+    }
+    __atomic_store_n(&info->healthconnectiter, (uint16_t)lifeCount,
+                     __ATOMIC_RELAXED);
+  }
   if (backup) {
     if (rewindFrom) {
       *rewindFrom = *rewindFrom < 0 ? lifeCount : std::min(*rewindFrom, lifeCount);
