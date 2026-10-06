@@ -76,7 +76,7 @@ object HistoryExporter {
 
     /**
      * Export data to a CSV file.
-     * Format: Timestamp(ms),Date,Value,RawValue,Unit,SensorSerial
+     * Format: Timestamp(ms),Date,UtcOffset,Value,RawValue,Unit,SensorSerial
      * Values are always exported in the User's preferred unit for consistency with what they see.
      * Multi-sensor: includes SensorSerial column for traceability. Re-imported glucose
      * rows are intentionally stored under a stable import namespace instead.
