@@ -113,6 +113,21 @@ class HistoryImportParserTests {
     }
 
     @Test
+    fun nativeTimezoneExplicitCsv_stillImportsByColumnName() {
+        val result = parse(
+            "Timestamp,Date,UtcOffset,Value,RawValue,CalibratedValue,Unit,SensorSerial,RecordType\n" +
+                "1700000000000,2023-11-14 22:13:20,+07:00,100,98,,mg/dL,ABC123,glucose\n"
+        )
+
+        assertNull(result.errorMessage)
+        assertEquals(0, result.failedRows)
+        assertEquals(1, result.readings.size)
+        assertEquals(1_700_000_000_000L, result.readings[0].timestamp)
+        assertEquals(100f, result.readings[0].valueMgDl, 0.001f)
+        assertEquals(98f, result.readings[0].rawValueMgDl, 0.001f)
+    }
+
+    @Test
     fun nativeLegacyFiveColumnCsv_stillImports() {
         val result = parse(
             "Timestamp,Date,Value,RawValue,Unit\n" +
