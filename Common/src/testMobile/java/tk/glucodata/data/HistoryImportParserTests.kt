@@ -116,7 +116,7 @@ class HistoryImportParserTests {
     fun nativeTimezoneExplicitCsv_stillImportsByColumnName() {
         val result = parse(
             "Timestamp,Date,UtcOffset,Value,RawValue,CalibratedValue,Unit,SensorSerial,RecordType\n" +
-                "1700000000000,2023-11-14 22:13:20,+07:00,100,98,,mg/dL,ABC123,glucose\n"
+                "1700000000000,2023-11-14 22:13:20,UTC+07:00,100,98,,mg/dL,ABC123,glucose\n"
         )
 
         assertNull(result.errorMessage)
