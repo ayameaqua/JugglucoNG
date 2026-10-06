@@ -91,7 +91,19 @@ internal fun shouldReanchorTimeline(
     liveId: Int,
     previousMaxId: Int,
     haveTimelineStart: Boolean,
-): Boolean = liveId >= 0 && (!haveTimelineStart || liveId > previousMaxId)
+): Boolean {
+    if (liveId < 0) return false
+
+    // A glucose id is the sensor's sample clock. Once one live id establishes
+    // start = arrival - id * cadence, newer ids must advance on that clock rather
+    // than repeatedly replacing the start with Bluetooth callback arrival time.
+    // Re-anchoring every push bakes transport/reconnect jitter into the whole
+    // history. A genuine sensor-session rollback clears the stored anchor before
+    // this function is called, so bootstrap is the only re-anchor needed here.
+    @Suppress("UNUSED_VARIABLE")
+    val previousId = previousMaxId
+    return !haveTimelineStart
+}
 
 /**
  * The timeline anchor to start a process with.
