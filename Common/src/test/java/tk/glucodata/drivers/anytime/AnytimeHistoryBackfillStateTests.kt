@@ -83,6 +83,7 @@ class AnytimeHistoryBackfillStateTests {
         assertFalse(
             shouldReanchorTimeline(
                 liveId = 8_175,
+                previousMaxId = 8_175,
                 haveTimelineStart = restored > 0L,
             )
         )
@@ -91,6 +92,7 @@ class AnytimeHistoryBackfillStateTests {
         assertFalse(
             shouldReanchorTimeline(
                 liveId = 8_176,
+                previousMaxId = 8_175,
                 haveTimelineStart = restored > 0L,
             )
         )
@@ -98,6 +100,7 @@ class AnytimeHistoryBackfillStateTests {
         assertTrue(
             shouldReanchorTimeline(
                 liveId = 12,
+                previousMaxId = -1,
                 haveTimelineStart = false,
             )
         )
