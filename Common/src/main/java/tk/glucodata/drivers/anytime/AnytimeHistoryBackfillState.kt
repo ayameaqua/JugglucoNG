@@ -86,8 +86,13 @@ internal fun liveIdLooksRolledBack(
  */
 internal fun shouldReanchorTimeline(
     liveId: Int,
+    previousMaxId: Int,
     haveTimelineStart: Boolean,
-): Boolean = liveId >= 0 && !haveTimelineStart
+): Boolean {
+    @Suppress("UNUSED_VARIABLE")
+    val previousId = previousMaxId
+    return liveId >= 0 && !haveTimelineStart
+}
 
 /**
  * The timeline anchor to start a process with.
