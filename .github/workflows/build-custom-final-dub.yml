@@ -1,0 +1,46 @@
+name: Build final custom DUB APK
+
+on:
+  push:
+    branches:
+      - build/custom-dub-final
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-dub:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Install Android toolchain
+        run: scripts/dist/install-sdk.sh
+
+      - name: Restore pinned JNI inputs
+        run: scripts/restore-build-inputs.sh
+
+      - name: Run focused regression tests
+        run: |
+          ./gradlew             :Common:testMobileDebugUnitTest             --tests tk.glucodata.AnytimeHealthConnectExportTests             --tests tk.glucodata.HealthConnectNativeRecordTests             --tests tk.glucodata.HealthConnectNullSensorptrTests             --tests tk.glucodata.drivers.anytime.AnytimeHistoryBackfillStateTests             --tests tk.glucodata.data.HistoryImportParserTests             --no-daemon             --stacktrace
+
+      - name: Build arm64 DUB APK
+        run: |
+          ./gradlew             :Common:assembleMobileReleasedub             -PjugglucoAbi=arm64-v8a             --no-daemon             --stacktrace
+
+      - name: Upload DUB APK
+        uses: actions/upload-artifact@v7
+        with:
+          name: JugglucoNG-custom-final-dub-arm64
+          path: Common/build/outputs/apk/mobile/releasedub/*.apk
+          if-no-files-found: error
+          retention-days: 7
