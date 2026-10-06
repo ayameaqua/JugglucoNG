@@ -75,35 +75,19 @@ internal fun liveIdLooksRolledBack(
             liveId + rollbackThreshold.coerceAtLeast(0) < previousMaxId
 
 /**
- * Whether a live id should move the timeline anchor.
+ * Whether a live id should establish the timeline anchor.
  *
- * The anchor is ours alone -- the transmitter sends an id, never a time -- and we turn one
- * into the other with `start = arrival - id * interval`. While ids advance each cadence the
- * two move together and the start holds still. Once a sensor stops advancing, as a CT5 does
- * after INFO_COMPLETE_END, `arrival` keeps moving while `id` does not, so re-anchoring on
- * every repeat walks the stored start forward for as long as the sensor keeps transmitting.
- * That is what dated a block of pulled history to the wrong evening.
- *
- * Keyed on the previous highest id, which a genuine restart resets to -1, so a re-activation
- * anchors from its own first id exactly as before.
+ * The transmitter sends a monotonic glucose id, not an absolute sample time. The
+ * first live sample therefore establishes `start = arrival - id * interval`.
+ * After that, the id/cadence pair is the clock: replacing the anchor on every
+ * newer push would fold BLE delivery/reconnect jitter into every historical
+ * timestamp. A genuine sensor-session rollback clears the anchor before this
+ * helper runs, so only a missing anchor needs to be established here.
  */
 internal fun shouldReanchorTimeline(
     liveId: Int,
-    previousMaxId: Int,
     haveTimelineStart: Boolean,
-): Boolean {
-    if (liveId < 0) return false
-
-    // A glucose id is the sensor's sample clock. Once one live id establishes
-    // start = arrival - id * cadence, newer ids must advance on that clock rather
-    // than repeatedly replacing the start with Bluetooth callback arrival time.
-    // Re-anchoring every push bakes transport/reconnect jitter into the whole
-    // history. A genuine sensor-session rollback clears the stored anchor before
-    // this function is called, so bootstrap is the only re-anchor needed here.
-    @Suppress("UNUSED_VARIABLE")
-    val previousId = previousMaxId
-    return !haveTimelineStart
-}
+): Boolean = liveId >= 0 && !haveTimelineStart
 
 /**
  * The timeline anchor to start a process with.
