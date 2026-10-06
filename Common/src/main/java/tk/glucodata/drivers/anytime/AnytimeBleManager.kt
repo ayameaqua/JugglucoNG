@@ -4301,7 +4301,6 @@ class AnytimeBleManager(
         // from its own first id.
         if (!shouldReanchorTimeline(
                 liveId = glucoseId,
-                previousMaxId = lastGlucoseId,
                 haveTimelineStart = glucoseTimelineStartAtMs > 0L,
             )
         ) {
