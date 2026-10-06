@@ -49,6 +49,28 @@ class HealthConnectNativeRecordTests {
     }
 
     @Test
+    fun nativeBackfillRewindsHealthConnectCursor() {
+        val jni = flattened("Common/src/main/cpp/g.cpp")
+        val store = jni.substring(jni.indexOf("static bool storeGlucoseStreamSample("))
+            .substringBefore("static bool addGlucoseStreamInternal(")
+        val gap = store.indexOf("fillsPollGap")
+        val rewind = store.indexOf("info->healthconnectiter > lifeCount")
+        val write = store.indexOf("__atomic_store_n(&info->healthconnectiter", rewind)
+        assertTrue("gap backfills must rewind Health Connect before the next export", gap >= 0 && rewind > gap && write > rewind)
+    }
+
+    @Test
+    fun overlappingHealthConnectTriggersStayQueued() {
+        val health = flattened("Common/src/mobile/java/tk/glucodata/HealthConnection.kt")
+        val entry = health.substring(health.indexOf("private fun writeAllIns("))
+            .substringBefore("private suspend fun exportOneSensor(")
+        assertTrue(entry.contains("pendingExports[sensorptr] = sensorName"))
+        assertTrue(entry.contains("if (exportWorkerActive)"))
+        assertTrue(entry.contains("while (true)"))
+        assertTrue(entry.contains("pendingExports.remove(next.key)"))
+    }
+
+    @Test
     fun rebaseCarriesTheHealthConnectCursorIntoTheNewWindow() {
         val hpp = flattened("Common/src/main/cpp/SensorGlucoseData.hpp")
         val rebase = hpp.substring(hpp.indexOf("void rebaseDirectStreamWindow(uint32_t starttime) {"))
