@@ -124,7 +124,7 @@ class HealthConnection(private val client: HealthConnectClient) {
         while (start < end) {
             val take = min(end - start, 500)
             Log.i(LOG_ID, "start=$start take=$take")
-            val siz = client.insertRecords(GlucoseList(meta, sensorptr, start, take)).recordIdsList.size
+            val siz = client.insertRecords(GlucoseList(meta, sensorptr, start, take, sensorName)).recordIdsList.size
             if (siz == 0) {
                 Log.e(LOG_ID, "insertRecords $siz==0")
                 return
