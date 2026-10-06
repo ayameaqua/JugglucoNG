@@ -34,7 +34,7 @@ object HistoryExporter {
         }
 
     private fun utcOffsetFormat(): SimpleDateFormat =
-        SimpleDateFormat("XXX", Locale.US).apply {
+        SimpleDateFormat("'UTC'XXX", Locale.US).apply {
             timeZone = TimeZone.getDefault()
         }
 
