@@ -45,11 +45,13 @@ public class GlucoseList implements List<BloodGlucoseRecord>   {
 
     private static final String LOG_ID="GlucoseList";
    long sensorptr;
+   String sensorName;
    int start;
     int len;
-public    GlucoseList(Metadata meta,long sensorptr,int start,int len) {
+public    GlucoseList(Metadata meta,long sensorptr,int start,int len,String sensorName) {
         this.metadata=meta;
-    this.sensorptr=sensorptr;
+        this.sensorptr=sensorptr;
+        this.sensorName=sensorName;
         this.start=start;
         this.len=len;
 
