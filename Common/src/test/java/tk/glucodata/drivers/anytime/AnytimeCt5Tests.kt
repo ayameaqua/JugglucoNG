@@ -739,12 +739,12 @@ class AnytimeCt5Tests {
     // ---- Timeline anchoring ---------------------------------------------
 
     @Test
-    fun anAdvancingSensorAnchorsExactlyAsBefore() {
-        // The ordinary case must be untouched: ids advance every cadence, and the anchor
-        // is evaluated before lastGlucoseId moves, so each new id re-anchors.
+    fun anAdvancingSensorKeepsItsEstablishedAnchor() {
+        // Once the first live id has established the sensor clock, later ids advance
+        // by cadence. BLE callback arrival jitter must not shift the whole history.
         for (id in 1..20) {
-            assertTrue(
-                "id=$id must anchor",
+            assertFalse(
+                "id=$id must keep the existing anchor",
                 shouldReanchorTimeline(liveId = id, previousMaxId = id - 1, haveTimelineStart = true),
             )
         }
@@ -763,7 +763,7 @@ class AnytimeCt5Tests {
         // clearStaleRuntimeStateBeforeLiveRecord resets the cursor to -1 on a rollback,
         // so a fresh sensor is not held hostage by the dead one's ids.
         assertTrue(shouldReanchorTimeline(liveId = 0, previousMaxId = -1, haveTimelineStart = false))
-        assertTrue(shouldReanchorTimeline(liveId = 3, previousMaxId = -1, haveTimelineStart = true))
+        assertFalse(shouldReanchorTimeline(liveId = 3, previousMaxId = -1, haveTimelineStart = true))
     }
 
     @Test
