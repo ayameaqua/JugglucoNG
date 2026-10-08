@@ -54,9 +54,8 @@ class HealthConnectNativeRecordTests {
         val store = jni.substring(jni.indexOf("static bool storeGlucoseStreamSample("))
             .substringBefore("static bool addGlucoseStreamInternal(")
         val gap = store.indexOf("fillsPollGap")
-        val rewind = store.indexOf("info->healthconnectiter > lifeCount")
-        val write = store.indexOf("__atomic_store_n(&info->healthconnectiter", rewind)
-        assertTrue("gap backfills must rewind Health Connect before the next export", gap >= 0 && rewind > gap && write > rewind)
+        val invalidate = store.indexOf("healthconnect::gapFilled(&info->healthconnectiter")
+        assertTrue("every new gap fill must invalidate an in-flight snapshot", gap >= 0 && invalidate > gap)
     }
 
     @Test
@@ -73,13 +72,13 @@ class HealthConnectNativeRecordTests {
     @Test
     fun glucoseReplayUsesStableHealthConnectClientRecordIds() {
         val list = flattened("Common/src/mobile/java/tk/glucodata/GlucoseList.java")
-        val iterator = flattened("Common/src/mobile/java/tk/glucodata/GlucoseIterator.java")
+        val iterator = list
         val health = flattened("Common/src/mobile/java/tk/glucodata/HealthConnection.kt")
 
         assertTrue(list.contains("String sensorName"))
         assertTrue(
             iterator.contains(
-                "\"juggluco-ng:glucose:\" + base.sensorName + \":\" + time"
+                "\"juggluco-ng:glucose:\" + sensorName + \":\" + time"
             )
         )
         assertTrue(iterator.contains("Metadata.unknownRecordingMethod("))
@@ -92,7 +91,7 @@ class HealthConnectNativeRecordTests {
         val rebase = hpp.substring(hpp.indexOf("void rebaseDirectStreamWindow(uint32_t starttime) {"))
             .substringBefore("void sendbluetoothOn(")
         val shift = rebase.indexOf("(static_cast<int64_t>(starttime) - info->starttime) / 60")
-        val moved = rebase.indexOf("info->healthconnectiter = static_cast<uint16_t>(")
+        val moved = rebase.indexOf("healthconnect::reset(&info->healthconnectiter, static_cast<uint16_t>(")
         val overwrite = rebase.indexOf("info->starttime = starttime;")
         assertTrue("rebase must shift the cursor by the window's move in minutes", shift >= 0 && moved > shift)
         assertTrue("the shift must be measured against the old starttime", overwrite > moved)

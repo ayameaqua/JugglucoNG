@@ -112,26 +112,27 @@ class HealthConnection(private val client: HealthConnectClient) {
             }
         }
 
-        val endstart = Natives.healthConnectfromSensorptr(sensorptr)
-        val end = endstart ushr 16
-        var start = endstart and 0xFFFF
-        if (start == end) return
-
-        Log.i(LOG_ID, "endstart=$endstart start=$start end=$end len=${end - start}")
         val meta = androidx.health.connect.client.records.metadata.Metadata.unknownRecordingMethod(
             device = Device(TYPE_UNKNOWN, "Libre", sensorName)
         )
-        while (start < end) {
+        while (true) {
+            val snapshot = Natives.healthConnectfromSensorptr(sensorptr)
+            val end = ((snapshot ushr 16) and 0xFFFF).toInt()
+            val start = (snapshot and 0xFFFF).toInt()
+            if (start >= end) return
             val take = min(end - start, 500)
-            Log.i(LOG_ID, "start=$start take=$take")
-            val siz = client.insertRecords(GlucoseList(meta, sensorptr, start, take, sensorName)).recordIdsList.size
-            if (siz == 0) {
-                Log.e(LOG_ID, "insertRecords $siz==0")
-                return
+            // Materialize a bounded list before the suspending insert. Native
+            // indices include empty minute slots, not just valid records.
+            val records = GlucoseList(meta, sensorptr, start, take, sensorName)
+            if (records.isNotEmpty()) {
+                client.insertRecords(records)
             }
-            Log.i(LOG_ID, "siz=$siz")
-            start += take
-            Natives.healthConnectWritten(sensorptr, start)
+            // A concurrent backfill (including one inside this chunk) invalidates
+            // the snapshot. Re-read from the preserved cursor; stable record IDs
+            // make replay safe. Failed inserts never reach this acknowledgement.
+            if (!Natives.healthConnectWritten(sensorptr, snapshot, start + take)) {
+                if (doLog) Log.i(LOG_ID, "Native history changed during Health Connect insert; replaying")
+            }
         }
     }
 
