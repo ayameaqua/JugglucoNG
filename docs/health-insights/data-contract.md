@@ -103,12 +103,52 @@ schema/series.schema.json
 schema/field-catalog.json
 README.txt
 summary.json
+summary.md
 records/<kind>.jsonl
 series/<kind>.jsonl
 relations.jsonl
 quality.jsonl
 raw/<kind>.jsonl             # optional, explicitly chosen
 ```
+
+### First-release action: export all synchronized local data
+
+There is one separate button, with no date/type/format wizard. Its scope is
+`all_synced_local`: every retained valid glucose record/source/sensor and available
+value channel, every imported Samsung type and full child sequence, existing
+Juggluco journal entries, relations and derived summaries. Display date, track,
+event and main-sensor filters do not reduce that scope. A disabled source's cached
+records are still included with their last sync status. Explicitly deleted records
+are excluded. Profile/location data is included only if previously opted into and
+successfully imported; this action never enables those permissions.
+
+On click, coalesce/enqueue a refresh of enabled sources within configured import
+scopes, await its committed outcomes, capture a source-consistent snapshot, stream
+the ZIP, then show system save/share. Exporting does not silently fetch all account
+history, request new permissions or upload a file to any remote service. Capture
+includes the committed local data available at the declared source revisions;
+later glucose readings belong to the next export.
+
+The manifest adds `export_policy` with scope, ignored view filters, refresh outcome
+and each source/type's sync result, actual retained bounds/counts, import coverage
+and omitted ranges/reasons. Partial refresh exports must explicitly declare
+partial synchronization and stale cached records. "All local records exported"
+does not mean all account history imported or continuous sampling proved.
+Already captured but unmapped health fields must be retained as declared unmapped
+data rather than dropped or assigned guessed units. Optional `raw/` is separately
+selected diagnostic data, never required to understand normalized records.
+
+`summary.md` and `summary.json` come from the same snapshot, including units,
+source times, actual per-type ranges, coverage and algorithm versions. Metadata
+and scalar summaries give an Agent an entry point; full sequences remain in the
+package, without downsampling or context-size truncation. The package is a full
+snapshot of its declared retained scope, not an incremental import/change log;
+consumers must not merge deleted records back from an older full snapshot.
+
+Report size/storage errors explicitly. Do not publish an incomplete ZIP as a
+successful export. Cancellation cleans temporary export files and never stops
+CGM/BLE or the independent Health Connect workflow. Date-limited, summary-only
+and CSV exports are future additions rather than first-release choices.
 
 The manifest declares dataset and snapshot IDs, capture cutoff, schema/app/SDK
 versions, query range and display/calendar zone, selected sources/types, glucose
@@ -131,13 +171,16 @@ Partial exports remain useful but must declare unfinished types/pages, file
 limits, errors and missing coverage. No silent truncation. Only synthetic examples
 belong in this public directory; actual exports stay outside tracked source.
 
-## MCP and the ChatGPT connection boundary
+## Future MCP and the ChatGPT connection boundary
+
+MCP is deferred. The following query/transport ideas are not first-release
+implementation requirements or Android validation gates.
 
 The selected agent is ChatGPT on the user's phone. ChatGPT is not assumed to be
 a native localhost MCP client. Official custom MCP documentation currently
 describes the web surface and a reachable HTTPS endpoint or Secure MCP Tunnel.
 Account/workspace access, Android app usage and phone bridge runtime must be
-verified. The first-release connection path is still a product decision.
+verified before any future MCP implementation. First release uses file export.
 
 The proposed ChatGPT paths are an OpenAI Secure MCP Tunnel (subject to Platform
 permissions, runtime credentials and an Android-compatible client) or a
@@ -235,13 +278,15 @@ Health Connect working.
 ## Compatibility and validation gates
 
 Validate schema/examples, scalar units, UTC/epoch agreement, missing values,
-record/series references, IDs, hashes, corrections, deletions, scopes, paging,
-snapshot expiry and byte limits. Include UTC+7/+8 and 23/25-hour DST days.
+record/series references, IDs, hashes, corrections, deletions and export limits.
+Include UTC+7/+8 and 23/25-hour DST days.
 Test all SDK inventory types individually; only six have probe evidence today.
-Test the selected ChatGPT connection and any supported local clients, wire versions,
-authorized/unauthorized requests and credential revocation. MCP/export equality
-must use one frozen snapshot and identical filters. SDK-free normal builds and
-watch builds remain required.
+Verify complete export counts and hashes across retained sources/types/sequences,
+independence from view filters, sync failure/partial freshness, cancellations,
+storage failures and actual save/share/upload reading. SDK-free normal builds and
+watch builds remain required. Future MCP work separately tests ChatGPT/client
+interop, authorized/unauthorized requests, revocation, paging and frozen-snapshot
+MCP/export equality; those are not first-release gates.
 
 References: [Samsung type operations](https://developer.samsung.com/health/data/guide/features/data-types.html),
 [Samsung changes](https://developer.samsung.com/health/data/guide/hello-sdk/read-changes.html),

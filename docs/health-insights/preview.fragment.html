@@ -27,7 +27,7 @@
     #health-timeline-draft p { margin: 6px 0; }
     #health-timeline-draft .ht-muted { color:var(--ht-muted); }
     #health-timeline-draft .ht-small { font-size:12px; }
-    #health-timeline-draft .ht-tabs { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); padding:0 8px 8px; gap:2px; }
+    #health-timeline-draft .ht-tabs { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); padding:0 8px 8px; gap:2px; }
     #health-timeline-draft .ht-button, #health-timeline-draft .ht-tab, #health-timeline-draft .ht-chip {
       border:1px solid var(--ht-border); background:var(--ht-surface); color:var(--ht-text);
       border-radius:18px; min-height:44px; padding:8px 12px; font:inherit;
@@ -88,8 +88,6 @@
       <button id="ht-tab-timeline" class="ht-tab cursor-interaction" type="button" role="tab" aria-selected="true" aria-controls="ht-timeline" data-page="timeline">时间线</button>
       <button id="ht-tab-analysis" class="ht-tab cursor-interaction" type="button" role="tab" aria-selected="false" aria-controls="ht-analysis" data-page="analysis">分析</button>
       <button id="ht-tab-sources" class="ht-tab cursor-interaction" type="button" role="tab" aria-selected="false" aria-controls="ht-sources" data-page="sources">数据源</button>
-      <button id="ht-tab-export" class="ht-tab cursor-interaction" type="button" role="tab" aria-selected="false" aria-controls="ht-export" data-page="export">导出</button>
-      <button id="ht-tab-mcp" class="ht-tab cursor-interaction" type="button" role="tab" aria-selected="false" aria-controls="ht-mcp" data-page="mcp">MCP</button>
     </nav>
     <div class="ht-body">
       <section id="ht-timeline" class="ht-panel" role="tabpanel" aria-labelledby="ht-tab-timeline">
@@ -116,7 +114,6 @@
         <div class="ht-formrow" style="margin-top:12px"><label class="ht-field">事件前<select id="ht-before"><option value="30">30 分钟</option><option value="60">60 分钟</option></select></label><label class="ht-field">事件后<select id="ht-after"><option value="60">60 分钟</option><option value="120">120 分钟</option></select></label></div>
         <div class="ht-box" id="ht-analysis-detail" aria-live="polite"></div>
         <p class="ht-muted ht-small">按时间关联，保留覆盖情况与统计方法。</p>
-        <button type="button" class="ht-button ht-main ht-wide cursor-interaction" data-action="export-context">导出这个观察窗口</button>
       </section>
       <section id="ht-sources" class="ht-panel" role="tabpanel" aria-labelledby="ht-tab-sources" hidden>
         <h3>三星健康</h3>
@@ -127,27 +124,11 @@
         <label class="ht-field">首次导入范围<select id="ht-import-range"><option value="3">最近 3 天</option><option value="7">最近 7 天</option><option value="30" selected>最近 30 天</option><option value="90">最近 90 天</option></select></label>
         <p class="ht-muted ht-small">进入页面按需刷新，也可手动刷新。同步状态与 Health Connect 分开。</p>
       </section>
-      <section id="ht-export" class="ht-panel" role="tabpanel" aria-labelledby="ht-tab-export" hidden>
-        <h3>导出给 Agent</h3>
-        <div class="ht-formrow"><label class="ht-field">开始日期<input type="date" id="ht-export-start" value="2026-01-02"></label><label class="ht-field">结束日期<input type="date" id="ht-export-end" value="2026-01-02"></label></div>
-        <label class="ht-field">格式<select id="ht-format"><option value="zip">完整 ZIP：记录、序列、概要和字段说明</option><option value="summary">概要 JSON</option><option value="csv">分类 CSV</option></select></label>
-        <div class="ht-box"><label class="ht-check"><input type="checkbox" checked><span>血糖与已选三星健康数据</span></label><label class="ht-check"><input type="checkbox"><span>加入饮食、胰岛素等日志</span></label><label class="ht-check"><input id="ht-raw" type="checkbox"><span>包含 SDK 原始字段</span></label><label class="ht-check"><input id="ht-ids" type="checkbox" checked><span>替换设备和传感器识别码</span></label></div>
-        <details><summary class="cursor-interaction">数据格式示例（字段节选）</summary><pre id="ht-format-example"></pre></details>
-        <button type="button" class="ht-button ht-main ht-wide cursor-interaction" data-action="export">保存或分享</button>
-        <p class="ht-muted ht-small" id="ht-export-result" aria-live="polite">日期、单位、来源、缺失信息随数据包导出。</p>
-      </section>
-      <section id="ht-mcp" class="ht-panel" role="tabpanel" aria-labelledby="ht-tab-mcp" hidden>
-        <div class="ht-row ht-between"><h3>连接 Agent</h3><span id="ht-mcp-status" class="ht-state">待接入</span></div>
-        <label class="ht-field">连接方式<select id="ht-mcp-mode"><option value="tunnel">ChatGPT · 安全隧道（待验证）</option><option value="https">ChatGPT · HTTPS 网关</option><option value="local">兼容本机 MCP 客户端</option></select></label>
-        <div class="ht-box" id="ht-mcp-endpoint"><span class="ht-muted ht-small">目标：ChatGPT</span><p>通过账号中的安全隧道连接</p><p class="ht-muted ht-small">先验证账号权限与 Android 通道；不是 localhost 直连。</p></div>
-        <label class="ht-field">允许查询的数据范围<select id="ht-mcp-range"><option value="7">最近 7 天</option><option value="30">最近 30 天</option><option value="all">全部已导入数据</option></select></label>
-        <label class="ht-check"><input id="ht-mcp-health" type="checkbox" checked><span>血糖与已选健康类型</span></label>
-        <label class="ht-check"><input type="checkbox"><span>个人资料和运动位置</span></label>
-        <div class="ht-row" style="margin-top:12px"><button type="button" class="ht-button ht-main cursor-interaction" data-action="mcp-toggle">演示开启共享</button><button type="button" class="ht-button cursor-interaction" data-action="mcp-config">查看接入条件</button><button type="button" class="ht-button cursor-interaction" data-action="mcp-revoke">撤销授权</button><button type="button" class="ht-button cursor-interaction" data-action="mcp-file">导出给 ChatGPT</button></div>
-        <pre id="ht-mcp-config" hidden></pre>
-        <p id="ht-mcp-message" class="ht-muted ht-small" aria-live="polite">草案未建立连接。ChatGPT 官方接入说明为网页版；Android App 调用需实测。</p>
-        <div class="ht-note ht-small">Agent 读取当前本地数据，返回各来源最后同步时间。三星数据仍由进入页面或手动操作刷新。</div>
-      </section>
+      <hr class="ht-divider">
+      <button type="button" class="ht-button ht-main ht-wide cursor-interaction" data-action="export-all">导出全部数据给 Agent</button>
+      <p class="ht-muted ht-small">刷新后导出全部本地历史，包含血糖、已同步三星数据、完整序列和已有日志。当前日期与显示筛选不限制导出。</p>
+      <p id="ht-export-result" class="ht-muted ht-small" aria-live="polite">一个 ZIP · 字段说明与概要 · 保存或分享</p>
+      <details><summary class="cursor-interaction">数据包内容</summary><p class="ht-small">清单、各类型记录与完整序列、关联、概要、单位与时间说明、同步状态和数据缺口。</p><p class="ht-muted ht-small">包括此前已授权读取的个人资料与位置；未同步的历史范围明确注明。</p><pre id="ht-format-example" aria-label="数据格式字段节选"></pre></details>
     </div>
   </section>
   <script>
@@ -156,21 +137,21 @@
       const phone = root.querySelector('.ht-phone');
       const saved = window.openai?.widgetState?.modelContent || {};
       const detailSaved = window.openai?.widgetState?.privateContent || {};
-      const pages = ['timeline','analysis','sources','export','mcp'];
+      const pages = ['timeline','analysis','sources'];
       const state = {
         page: pages.includes(saved.page) ? saved.page : 'timeline',
         unit: saved.unit === 'mgdl' ? 'mgdl' : 'mmol',
         cursor: Number.isFinite(detailSaved.cursor) ? Math.max(0,Math.min(23.75,detailSaved.cursor)) : 6,
         zone: ['Asia/Shanghai','Asia/Bangkok','UTC'].includes(saved.zone) ? saved.zone : 'Asia/Shanghai',
         tracks: Array.isArray(saved.tracks) ? saved.tracks.filter(x=>['heart','sleep','exercise','oxygen','skin'].includes(x)) : ['heart','sleep','exercise'],
-        compact: false, mcpRunning: false, credentialRevoked: false, mcpMode:'tunnel',
+        compact: false,
         event: 'walk', before: 30, after: 60
       };
       const sourceNames = ['心率','血氧','睡眠','运动','步数','皮肤温度'];
       root.querySelector('#ht-source-list').innerHTML = sourceNames.map((name,i)=>`<label class="ht-line"><input type="checkbox" checked data-source="${i}"><span>${name}<span class="ht-value">示例：已授权 · 最后读取 20:00</span></span><span class="ht-small">有记录</span></label>`).join('');
       root.querySelector('#ht-format-example').textContent = JSON.stringify({schema_version:'0.1.0',record_id:'synthetic-cgm-1',kind:'blood_glucose',time:{start_utc:'2026-01-02T02:30:00Z',original_offset:'+08:00'},metrics:{glucose:{value:108,unit:'mg/dL',statistic:'instant'}},source:{provider:'juggluco',sensor_alias:'synthetic-cgm'}},null,2);
       const save = () => {
-        if (window.openai?.setWidgetState) window.openai.setWidgetState({modelContent:{page:state.page,unit:state.unit,zone:state.zone,tracks:[...state.tracks],target_agent:'ChatGPT',mcp_connection:state.mcpMode,samsung_refresh:'page_entry_and_manual'},privateContent:{cursor:state.cursor}}).catch(()=>{});
+        if (window.openai?.setWidgetState) window.openai.setWidgetState({modelContent:{page:state.page,unit:state.unit,zone:state.zone,tracks:[...state.tracks],target_agent:'ChatGPT',agent_access:'file_export',export_scope:'all_synced_local',samsung_refresh:'page_entry_and_manual'},privateContent:{cursor:state.cursor}}).catch(()=>{});
       };
       function switchPage(page, persist=true) {
         state.page=page;
@@ -262,43 +243,13 @@
       });
       root.querySelector('#ht-date').addEventListener('change',ev=>{root.querySelector('#ht-freshness').textContent=`示例日期 ${ev.target.value} · 此草案仅演示交互。`;});
       for(const id of ['event','before','after'])root.querySelector('#ht-'+id).addEventListener('change',ev=>{state[id]=id==='event'?ev.target.value:Number(ev.target.value);renderAnalysis();});
-      function connectionRequirements() {
-        const common={transport:'Streamable HTTP',read_only:true,scope:{days:root.querySelector('#ht-mcp-range').value,health_types:'用户选择'},status:'草案，尚未连接'};
-        if(state.mcpMode==='local')return {...common,target:'兼容本机客户端',url:'http://127.0.0.1:18741/mcp',requires:['客户端支持 MCP 与认证配置','本机独立访问凭据'],chatgpt_direct_connection:false};
-        if(state.mcpMode==='https')return {...common,target:'ChatGPT',connection:'用户控制的 HTTPS 网关',requires:['ChatGPT 网页自定义 MCP 入口','稳定 HTTPS 与 OAuth 授权','手机外连通道和前台运行验证'],android_app_usage:'待实测'};
-        return {...common,target:'ChatGPT',connection:'OpenAI Secure MCP Tunnel',requires:['ChatGPT 网页自定义 MCP 入口','Platform 隧道与组织/工作区权限','通道运行凭据（仅受控端保存）','Android 兼容客户端与联网验证'],android_app_usage:'待实测'};
-      }
-      root.querySelector('#ht-mcp-mode').addEventListener('change',ev=>{
-        state.mcpMode=ev.target.value;state.mcpRunning=false;
-        root.querySelector('#ht-mcp-status').textContent='待接入';
-        root.querySelector('[data-action="mcp-toggle"]').textContent='演示开启共享';
-        const info={tunnel:['目标：ChatGPT','通过账号中的安全隧道连接','先验证账号权限与 Android 通道；不是 localhost 直连。'],https:['目标：ChatGPT','用户控制的 HTTPS 网关','需要 OAuth 与手机连接通道；按查询返回本地数据。'],local:['目标：兼容本机 MCP 客户端','http://127.0.0.1:18741/mcp','此地址供同机 MCP 客户端使用，不是 ChatGPT 的直连入口。']}[state.mcpMode];
-        const box=root.querySelector('#ht-mcp-endpoint');box.replaceChildren();
-        info.forEach((value,index)=>{const line=document.createElement(index===0?'span':'p');line.textContent=value;if(index!==1)line.className='ht-muted ht-small';box.appendChild(line);});
-        root.querySelector('#ht-mcp-config').textContent=JSON.stringify(connectionRequirements(),null,2);
-        root.querySelector('#ht-mcp-message').textContent='草案：接入条件验证后才能实际共享；此处只演示界面状态。';save();
-      });
       root.querySelectorAll('[data-action]').forEach(el=>el.addEventListener('click',()=>{
         const action=el.dataset.action;
         if(action==='refresh')root.querySelector('#ht-freshness').textContent='示例：刷新完成；各数据源的成功时间与缺口分别记录。';
         if(action==='event'){state.event='walk';root.querySelector('#ht-event').value='walk';renderAnalysis();switchPage('analysis');}
-        if(action==='export-context') {switchPage('export');root.querySelector('#ht-export-result').textContent='示例：已选事件前后窗口，导出包含血糖与事件来源信息。';}
-        if(action==='export'){
-          const begin=root.querySelector('#ht-export-start').value,end=root.querySelector('#ht-export-end').value,result=root.querySelector('#ht-export-result');
-          if(!begin||!end||begin>end){result.setAttribute('role','alert');result.textContent='开始日期必须不晚于结束日期。';}
-          else{result.removeAttribute('role');result.textContent='示例：正式页面将在这里打开系统保存或分享。此草案不生成健康文件。';}
+        if(action==='export-all'){
+          root.querySelector('#ht-export-result').textContent='示例流程：同步完成 → 全部本地数据快照 → ZIP → 系统保存或分享。此草案不生成真实文件。';save();
         }
-        if(action==='mcp-toggle'){
-          state.mcpRunning=!state.mcpRunning;state.credentialRevoked=false;
-          root.querySelector('#ht-mcp-status').textContent=state.mcpRunning?'示例：共享中':'示例：已停止';el.textContent=state.mcpRunning?'演示停止共享':'演示开启共享';
-          root.querySelector('#ht-mcp-message').textContent=state.mcpRunning?'示例状态：已选类型与日期范围生效。未运行真实 MCP 或通道。':'示例状态：服务已停止，客户端访问关闭。';
-        }
-        if(action==='mcp-config'){
-          const config=root.querySelector('#ht-mcp-config');config.hidden=!config.hidden;
-          config.textContent=JSON.stringify(connectionRequirements(),null,2);
-        }
-        if(action==='mcp-revoke'){state.credentialRevoked=true;state.mcpRunning=false;root.querySelector('#ht-mcp-status').textContent='示例：已撤销';root.querySelector('[data-action="mcp-toggle"]').textContent='演示开启共享';root.querySelector('#ht-mcp-message').textContent='示例：授权已撤销，已授权连接与快照访问立即失效。';}
-        if(action==='mcp-file'){switchPage('export');root.querySelector('#ht-export-result').textContent='选择概要 JSON、CSV 或完整数据包，保存后在 ChatGPT 中上传；可用格式与大小按客户端确认。';}
       }));
       root.querySelector('#ht-samsung-enable').addEventListener('change',ev=>{
         root.querySelectorAll('[data-source]').forEach(input=>input.disabled=!ev.target.checked);

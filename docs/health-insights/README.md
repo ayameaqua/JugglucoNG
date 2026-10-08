@@ -18,13 +18,19 @@ Development branch: `feature/samsung-health-insights`, based on
 
 ## Target agent: ChatGPT
 
+The first release is now **one-button export of all synchronized local health
+data**. It has no live MCP server or connection page. The button refreshes enabled
+sources within their configured import scope, captures source-consistent snapshots,
+and generates one agent-friendly ZIP for system save/share. Current view filters
+do not restrict the export. MCP remains a future design, not a release gate.
+
 The target is ChatGPT on the user's phone. This is not evidence that ChatGPT is
 a native phone-local MCP client. Its documented custom MCP connection uses the
 web surface with a reachable HTTPS server or Secure MCP Tunnel; a phone loopback
 URL cannot be pasted into that connection as a directly reachable server.
 Android app usage, account access, authentication and phone-side bridge runtime
-remain validation gates. The screen draft shows these gates rather than claiming
-an operational connection. File export remains available independently.
+remain validation gates for future MCP work. The first-release screen draft has
+three sections and one complete-export button.
 
 - [ChatGPT custom MCP connection](https://developers.openai.com/api/docs/guides/custom-mcp-server)
 - [Prepare a reachable endpoint](https://developers.openai.com/plugins/deploy/connect-chatgpt)
