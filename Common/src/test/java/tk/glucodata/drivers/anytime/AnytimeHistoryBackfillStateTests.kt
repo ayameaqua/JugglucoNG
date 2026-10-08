@@ -48,6 +48,7 @@ class AnytimeHistoryBackfillStateTests {
         val computed = manager.substringAfter("private fun handleComputedGlucose(").substringBefore("private fun handleCt5CurrentGlucose(")
         assertTrue(computed.contains("clearStaleRuntimeStateBeforeLiveRecord(rec.glucoseId)"))
         assertTrue(computed.contains("updateTimelineFromLiveGlucoseId(rec.glucoseId, now, intervalMs)"))
+        assertTrue(computed.contains("maybeStartFreshPostLiveBackfill(rec.glucoseId)"))
     }
 
     @Test

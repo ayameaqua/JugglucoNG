@@ -3933,6 +3933,7 @@ class AnytimeBleManager(
         val now = System.currentTimeMillis()
         clearStaleRuntimeStateBeforeLiveRecord(rec.glucoseId)
         updateTimelineFromLiveGlucoseId(rec.glucoseId, now, intervalMs)
+        maybeStartFreshPostLiveBackfill(rec.glucoseId)
         val sampleMs = if (glucoseTimelineStartAtMs > 0L) {
             glucoseTimelineStartAtMs + rec.glucoseId.toLong() * intervalMs
         } else if (sensorStartAtMs > 0L) {
