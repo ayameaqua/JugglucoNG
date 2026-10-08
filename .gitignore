@@ -66,3 +66,13 @@ Common/printmappingout.txt
 
 __pycache__/
 *.pyc
+
+# Samsung Health: user-supplied SDK and private health captures stay local.
+/.local/samsung-health/
+**/samsung-health-data-api*.aar
+**/samsung-health-data-api*.jar
+**/samsung-health-data-sdk*.zip
+**/DataViewer*.apk
+/health-data-private/
+**/shealth-probe-*.zip
+**/juggluco-health-export-*.zip

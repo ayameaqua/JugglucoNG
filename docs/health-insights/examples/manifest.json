@@ -1,0 +1,53 @@
+{
+  "schema_version": "0.1.0",
+  "synthetic": true,
+  "dataset_id": "synthetic-dataset",
+  "alias_namespace_id": "synthetic-namespace",
+  "snapshot_id": "synthetic-snapshot",
+  "capture_cutoff_utc": "2026-01-02T12:00:00Z",
+  "range": {
+    "start_utc": "2026-01-01T16:00:00Z",
+    "end_utc": "2026-01-02T16:00:00Z",
+    "display_timezone": "Asia/Shanghai"
+  },
+  "snapshot_consistency": {
+    "mode": "per_source",
+    "source_revisions": {
+      "juggluco": "synthetic-revision-1",
+      "samsung_health": "synthetic-revision-2"
+    }
+  },
+  "source_capture_times": {
+    "juggluco": "2026-01-02T12:00:00Z",
+    "samsung_health": "2026-01-02T12:00:00Z"
+  },
+  "coverage": {
+    "samsung_health": {
+      "query_status": "synthetic_example",
+      "continuous_sampling_proven": false
+    }
+  },
+  "privacy": {
+    "source_identifiers": "aliased",
+    "raw_sdk_fields_included": false,
+    "profile_included": true,
+    "route_included": false
+  },
+  "warnings": [
+    "SYNTHETIC_DATA",
+    "ILLUSTRATIVE_SUBSET",
+    "PARTIAL_DAY"
+  ],
+  "files": {
+    "records.jsonl": {
+      "records": 9,
+      "bytes": 7761,
+      "sha256": "976654aaeeeb6641e28ad789fc861411ad4bdb20597bfd2a529c3d0f012c56bb"
+    },
+    "series.jsonl": {
+      "records": 10,
+      "bytes": 4077,
+      "sha256": "0608531c5f8ac8ac7a05cfe280d73ad5a78e7e5f59c586a83bc7f4a009bf4f55"
+    }
+  }
+}

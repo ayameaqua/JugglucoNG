@@ -1,0 +1,318 @@
+<div id="health-timeline-draft" class="viz-dotted-background">
+  <style>
+    #health-timeline-draft { padding: 32px 8px 20px; }
+    #health-timeline-draft .ht-phone {
+      --ht-bg: light-dark(#fafafa,#121212);
+      --ht-surface: light-dark(#fff,#1e1e1e);
+      --ht-soft: light-dark(#edf3fa,#253547);
+      --ht-text: light-dark(#17202b,#edf0f4);
+      --ht-muted: light-dark(#526070,#b5c0ce);
+      --ht-border: light-dark(#dce2e8,#3e4650);
+      --ht-primary: light-dark(#1565c0,#90caf9);
+      --ht-onprimary: light-dark(#fff,#082d50);
+      --ht-heart: light-dark(#865187,#d6a5da);
+      --ht-stage: light-dark(#50658b,#9eaed0);
+      --ht-event: light-dark(#336d54,#97c7ae);
+      --ht-gap: 14px;
+      box-sizing: border-box; width: 100%; max-width: 450px; margin: auto;
+      color: var(--ht-text); background: var(--ht-bg); border: 1px solid var(--ht-border);
+      border-radius: 26px; overflow: hidden; font-family: Roboto,system-ui,sans-serif;
+      font-size: 14px; line-height: 1.5; color-scheme: light dark;
+    }
+    #health-timeline-draft .ht-phone * { box-sizing: border-box; }
+    #health-timeline-draft .ht-header { padding: 18px 18px 10px; }
+    #health-timeline-draft .ht-topline { display:flex; gap:12px; align-items:center; justify-content:space-between; flex-wrap:wrap; }
+    #health-timeline-draft h2 { margin: 4px 0 8px; font-size: 22px; font-weight:500; }
+    #health-timeline-draft h3 { margin:0 0 10px; font-size:16px; font-weight:500; }
+    #health-timeline-draft p { margin: 6px 0; }
+    #health-timeline-draft .ht-muted { color:var(--ht-muted); }
+    #health-timeline-draft .ht-small { font-size:12px; }
+    #health-timeline-draft .ht-tabs { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); padding:0 8px 8px; gap:2px; }
+    #health-timeline-draft .ht-button, #health-timeline-draft .ht-tab, #health-timeline-draft .ht-chip {
+      border:1px solid var(--ht-border); background:var(--ht-surface); color:var(--ht-text);
+      border-radius:18px; min-height:44px; padding:8px 12px; font:inherit;
+    }
+    #health-timeline-draft .ht-tab { padding:8px 2px; border-color:transparent; border-radius:14px; font-size:13px; }
+    #health-timeline-draft .ht-tab[aria-selected="true"], #health-timeline-draft .ht-main {
+      background:var(--ht-primary); color:var(--ht-onprimary); border-color:var(--ht-primary);
+    }
+    #health-timeline-draft .ht-chip { min-height:40px; padding:6px 10px; font-size:13px; }
+    #health-timeline-draft .ht-chip[aria-pressed="true"] { background:var(--ht-soft); border-color:var(--ht-primary); color:var(--ht-primary); }
+    #health-timeline-draft .ht-body { padding:var(--ht-gap) 18px 20px; border-top:1px solid var(--ht-border); }
+    #health-timeline-draft .ht-panel[hidden] { display:none; }
+    #health-timeline-draft .ht-row { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+    #health-timeline-draft .ht-between { justify-content:space-between; }
+    #health-timeline-draft .ht-formrow { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:var(--ht-gap); }
+    #health-timeline-draft .ht-field { display:flex; flex:1 1 120px; flex-direction:column; gap:5px; min-width:0; }
+    #health-timeline-draft input:not([type="checkbox"]), #health-timeline-draft select, #health-timeline-draft textarea {
+      border:1px solid var(--ht-border); background:var(--ht-surface); color:var(--ht-text);
+      border-radius:10px; width:100%; min-width:0; min-height:44px; padding:8px; font:inherit;
+    }
+    #health-timeline-draft input[type="checkbox"] { width:20px; height:20px; accent-color:var(--ht-primary); flex-shrink:0; }
+    #health-timeline-draft .ht-box { background:var(--ht-surface); padding:14px; border-radius:18px; margin:var(--ht-gap) 0; }
+    #health-timeline-draft .ht-line { display:flex; gap:10px; align-items:center; padding:11px 0; border-bottom:1px solid var(--ht-border); }
+    #health-timeline-draft .ht-line > span { flex:1; }
+    #health-timeline-draft .ht-line:last-child { border-bottom:0; }
+    #health-timeline-draft .ht-line strong, #health-timeline-draft .ht-number { font-weight:500; font-variant-numeric:tabular-nums; }
+    #health-timeline-draft .ht-value { display:block; margin-top:2px; font-size:12px; color:var(--ht-muted); }
+    #health-timeline-draft .ht-chart { width:100%; display:block; touch-action:pan-y; }
+    #health-timeline-draft .ht-chart text { fill:var(--ht-muted); font:12px Roboto,system-ui,sans-serif; }
+    #health-timeline-draft .ht-chart .ht-trace { stroke:var(--ht-primary); fill:none; stroke-width:2; }
+    #health-timeline-draft .ht-chart .ht-heart-trace { stroke:var(--ht-heart); fill:none; stroke-width:1.6; }
+    #health-timeline-draft .ht-chart .ht-grid { stroke:var(--ht-border); stroke-width:1; }
+    #health-timeline-draft .ht-chart .ht-guide { stroke:var(--ht-muted); stroke-width:1; stroke-dasharray:3 3; }
+    #health-timeline-draft .ht-chart .ht-sleepbar { fill:var(--ht-stage); }
+    #health-timeline-draft .ht-chart .ht-eventbar { fill:var(--ht-event); }
+    #health-timeline-draft .ht-check { display:flex; gap:10px; align-items:center; min-height:44px; }
+    #health-timeline-draft .ht-wide { width:100%; margin-top:12px; }
+    #health-timeline-draft .ht-divider { border:0; border-top:1px solid var(--ht-border); margin:var(--ht-gap) 0; }
+    #health-timeline-draft .ht-icon { width:16px; height:16px; vertical-align:middle; }
+    #health-timeline-draft .ht-state { display:inline-block; background:var(--ht-soft); color:var(--ht-primary); padding:3px 8px; border-radius:8px; }
+    #health-timeline-draft details { margin:12px 0; }
+    #health-timeline-draft summary { min-height:44px; padding:10px 0; }
+    #health-timeline-draft code, #health-timeline-draft pre { font-size:12px; overflow-wrap:anywhere; white-space:pre-wrap; }
+    #health-timeline-draft .ht-note { border-left:3px solid var(--ht-primary); padding-left:10px; margin:12px 0; }
+    @media(max-width:360px) {
+      #health-timeline-draft .ht-header, #health-timeline-draft .ht-body { padding-left:12px; padding-right:12px; }
+      #health-timeline-draft .ht-chip { padding:6px 8px; }
+    }
+    @media(pointer:coarse) { #health-timeline-draft input:not([type="checkbox"]), #health-timeline-draft select, #health-timeline-draft textarea { font-size:16px; } }
+  </style>
+  <section class="ht-phone" aria-label="JugglucoNG 健康时间线设计">
+    <header class="ht-header">
+      <div class="ht-topline"><span class="ht-muted ht-small">JugglucoNG · 页面草案</span><button type="button" class="ht-button cursor-interaction" data-action="refresh"><i class="ht-icon" data-lucide="refresh-cw" aria-hidden="true"></i> 刷新</button></div>
+      <h2>健康时间线</h2>
+      <p class="ht-muted ht-small">示例数据 · 非你的测量记录</p>
+    </header>
+    <nav class="ht-tabs" role="tablist" aria-label="健康数据分区">
+      <button id="ht-tab-timeline" class="ht-tab cursor-interaction" type="button" role="tab" aria-selected="true" aria-controls="ht-timeline" data-page="timeline">时间线</button>
+      <button id="ht-tab-analysis" class="ht-tab cursor-interaction" type="button" role="tab" aria-selected="false" aria-controls="ht-analysis" data-page="analysis">分析</button>
+      <button id="ht-tab-sources" class="ht-tab cursor-interaction" type="button" role="tab" aria-selected="false" aria-controls="ht-sources" data-page="sources">数据源</button>
+      <button id="ht-tab-export" class="ht-tab cursor-interaction" type="button" role="tab" aria-selected="false" aria-controls="ht-export" data-page="export">导出</button>
+      <button id="ht-tab-mcp" class="ht-tab cursor-interaction" type="button" role="tab" aria-selected="false" aria-controls="ht-mcp" data-page="mcp">MCP</button>
+    </nav>
+    <div class="ht-body">
+      <section id="ht-timeline" class="ht-panel" role="tabpanel" aria-labelledby="ht-tab-timeline">
+        <div class="ht-formrow">
+          <label class="ht-field">查看日期<input type="date" id="ht-date" value="2026-01-02"></label>
+          <label class="ht-field">显示时区<select id="ht-zone"><option value="Asia/Shanghai">上海 UTC+8</option><option value="Asia/Bangkok">曼谷 UTC+7</option><option value="UTC">UTC</option></select></label>
+        </div>
+        <div class="ht-row ht-between"><strong class="ht-number">血糖主轨</strong><select id="ht-unit" aria-label="血糖显示单位" style="width:auto"><option value="mmol">mmol/L</option><option value="mgdl">mg/dL</option></select></div>
+        <div class="ht-row" style="margin:10px 0" aria-label="显示的联动轨道">
+          <button type="button" class="ht-chip cursor-interaction" data-track="heart" aria-pressed="true">心率</button>
+          <button type="button" class="ht-chip cursor-interaction" data-track="sleep" aria-pressed="true">睡眠</button>
+          <button type="button" class="ht-chip cursor-interaction" data-track="exercise" aria-pressed="true">运动</button>
+          <button type="button" class="ht-chip cursor-interaction" data-track="oxygen" aria-pressed="false">血氧</button>
+          <button type="button" class="ht-chip cursor-interaction" data-track="skin" aria-pressed="false">皮温</button>
+        </div>
+        <svg id="ht-chart" class="ht-chart cursor-interaction" role="img" aria-label="合成血糖及健康数据联动时间线，点击可定位时间"></svg>
+        <label class="ht-field">游标时间<input id="ht-cursor" type="range" min="0" max="23.75" step="0.25" value="6" aria-label="选择联动游标时间"></label>
+        <div class="ht-box" aria-live="polite"><h3 id="ht-cursor-title">06:00 · 联动详情</h3><div id="ht-cursor-detail"></div><button type="button" class="ht-button ht-wide cursor-interaction" data-action="event">查看运动上下文</button></div>
+        <p class="ht-muted ht-small" id="ht-freshness">示例状态：三星数据最后读取 20:00；血糖更新独立进行。</p>
+      </section>
+      <section id="ht-analysis" class="ht-panel" role="tabpanel" aria-labelledby="ht-tab-analysis" hidden>
+        <h3>事件与血糖</h3>
+        <label class="ht-field">选择事件<select id="ht-event"><option value="walk">步行 · 09:00–09:30</option><option value="sleep">睡眠 · 00:30–07:30</option></select></label>
+        <div class="ht-formrow" style="margin-top:12px"><label class="ht-field">事件前<select id="ht-before"><option value="30">30 分钟</option><option value="60">60 分钟</option></select></label><label class="ht-field">事件后<select id="ht-after"><option value="60">60 分钟</option><option value="120">120 分钟</option></select></label></div>
+        <div class="ht-box" id="ht-analysis-detail" aria-live="polite"></div>
+        <p class="ht-muted ht-small">按时间关联，保留覆盖情况与统计方法。</p>
+        <button type="button" class="ht-button ht-main ht-wide cursor-interaction" data-action="export-context">导出这个观察窗口</button>
+      </section>
+      <section id="ht-sources" class="ht-panel" role="tabpanel" aria-labelledby="ht-tab-sources" hidden>
+        <h3>三星健康</h3>
+        <label class="ht-check"><input id="ht-samsung-enable" type="checkbox" checked><span>从三星健康读取数据</span></label>
+        <p class="ht-muted ht-small">示例：本地 SDK 可用，读取开发模式与权限已开启。</p>
+        <div id="ht-source-list"></div>
+        <details><summary class="cursor-interaction">更多官方 SDK 数据类型</summary><p>血压、身体成分、体温、爬楼、饮水、营养、能量得分、三星血糖、健康通知，以及活动汇总和各项目标。</p><p class="ht-muted ht-small">按类型授权，显示无记录、未授权或不支持。</p><label class="ht-check"><input type="checkbox"><span>个人资料（单独选择）</span></label><label class="ht-check"><input type="checkbox"><span>运动位置（单独选择）</span></label></details>
+        <label class="ht-field">首次导入范围<select id="ht-import-range"><option value="3">最近 3 天</option><option value="7">最近 7 天</option><option value="30" selected>最近 30 天</option><option value="90">最近 90 天</option></select></label>
+        <p class="ht-muted ht-small">进入页面按需刷新，也可手动刷新。同步状态与 Health Connect 分开。</p>
+      </section>
+      <section id="ht-export" class="ht-panel" role="tabpanel" aria-labelledby="ht-tab-export" hidden>
+        <h3>导出给 Agent</h3>
+        <div class="ht-formrow"><label class="ht-field">开始日期<input type="date" id="ht-export-start" value="2026-01-02"></label><label class="ht-field">结束日期<input type="date" id="ht-export-end" value="2026-01-02"></label></div>
+        <label class="ht-field">格式<select id="ht-format"><option value="zip">完整 ZIP：记录、序列、概要和字段说明</option><option value="summary">概要 JSON</option><option value="csv">分类 CSV</option></select></label>
+        <div class="ht-box"><label class="ht-check"><input type="checkbox" checked><span>血糖与已选三星健康数据</span></label><label class="ht-check"><input type="checkbox"><span>加入饮食、胰岛素等日志</span></label><label class="ht-check"><input id="ht-raw" type="checkbox"><span>包含 SDK 原始字段</span></label><label class="ht-check"><input id="ht-ids" type="checkbox" checked><span>替换设备和传感器识别码</span></label></div>
+        <details><summary class="cursor-interaction">数据格式示例（字段节选）</summary><pre id="ht-format-example"></pre></details>
+        <button type="button" class="ht-button ht-main ht-wide cursor-interaction" data-action="export">保存或分享</button>
+        <p class="ht-muted ht-small" id="ht-export-result" aria-live="polite">日期、单位、来源、缺失信息随数据包导出。</p>
+      </section>
+      <section id="ht-mcp" class="ht-panel" role="tabpanel" aria-labelledby="ht-tab-mcp" hidden>
+        <div class="ht-row ht-between"><h3>连接 Agent</h3><span id="ht-mcp-status" class="ht-state">待接入</span></div>
+        <label class="ht-field">连接方式<select id="ht-mcp-mode"><option value="tunnel">ChatGPT · 安全隧道（待验证）</option><option value="https">ChatGPT · HTTPS 网关</option><option value="local">兼容本机 MCP 客户端</option></select></label>
+        <div class="ht-box" id="ht-mcp-endpoint"><span class="ht-muted ht-small">目标：ChatGPT</span><p>通过账号中的安全隧道连接</p><p class="ht-muted ht-small">先验证账号权限与 Android 通道；不是 localhost 直连。</p></div>
+        <label class="ht-field">允许查询的数据范围<select id="ht-mcp-range"><option value="7">最近 7 天</option><option value="30">最近 30 天</option><option value="all">全部已导入数据</option></select></label>
+        <label class="ht-check"><input id="ht-mcp-health" type="checkbox" checked><span>血糖与已选健康类型</span></label>
+        <label class="ht-check"><input type="checkbox"><span>个人资料和运动位置</span></label>
+        <div class="ht-row" style="margin-top:12px"><button type="button" class="ht-button ht-main cursor-interaction" data-action="mcp-toggle">演示开启共享</button><button type="button" class="ht-button cursor-interaction" data-action="mcp-config">查看接入条件</button><button type="button" class="ht-button cursor-interaction" data-action="mcp-revoke">撤销授权</button><button type="button" class="ht-button cursor-interaction" data-action="mcp-file">导出给 ChatGPT</button></div>
+        <pre id="ht-mcp-config" hidden></pre>
+        <p id="ht-mcp-message" class="ht-muted ht-small" aria-live="polite">草案未建立连接。ChatGPT 官方接入说明为网页版；Android App 调用需实测。</p>
+        <div class="ht-note ht-small">Agent 读取当前本地数据，返回各来源最后同步时间。三星数据仍由进入页面或手动操作刷新。</div>
+      </section>
+    </div>
+  </section>
+  <script>
+    (() => {
+      const root = document.getElementById('health-timeline-draft');
+      const phone = root.querySelector('.ht-phone');
+      const saved = window.openai?.widgetState?.modelContent || {};
+      const detailSaved = window.openai?.widgetState?.privateContent || {};
+      const pages = ['timeline','analysis','sources','export','mcp'];
+      const state = {
+        page: pages.includes(saved.page) ? saved.page : 'timeline',
+        unit: saved.unit === 'mgdl' ? 'mgdl' : 'mmol',
+        cursor: Number.isFinite(detailSaved.cursor) ? Math.max(0,Math.min(23.75,detailSaved.cursor)) : 6,
+        zone: ['Asia/Shanghai','Asia/Bangkok','UTC'].includes(saved.zone) ? saved.zone : 'Asia/Shanghai',
+        tracks: Array.isArray(saved.tracks) ? saved.tracks.filter(x=>['heart','sleep','exercise','oxygen','skin'].includes(x)) : ['heart','sleep','exercise'],
+        compact: false, mcpRunning: false, credentialRevoked: false, mcpMode:'tunnel',
+        event: 'walk', before: 30, after: 60
+      };
+      const sourceNames = ['心率','血氧','睡眠','运动','步数','皮肤温度'];
+      root.querySelector('#ht-source-list').innerHTML = sourceNames.map((name,i)=>`<label class="ht-line"><input type="checkbox" checked data-source="${i}"><span>${name}<span class="ht-value">示例：已授权 · 最后读取 20:00</span></span><span class="ht-small">有记录</span></label>`).join('');
+      root.querySelector('#ht-format-example').textContent = JSON.stringify({schema_version:'0.1.0',record_id:'synthetic-cgm-1',kind:'blood_glucose',time:{start_utc:'2026-01-02T02:30:00Z',original_offset:'+08:00'},metrics:{glucose:{value:108,unit:'mg/dL',statistic:'instant'}},source:{provider:'juggluco',sensor_alias:'synthetic-cgm'}},null,2);
+      const save = () => {
+        if (window.openai?.setWidgetState) window.openai.setWidgetState({modelContent:{page:state.page,unit:state.unit,zone:state.zone,tracks:[...state.tracks],target_agent:'ChatGPT',mcp_connection:state.mcpMode,samsung_refresh:'page_entry_and_manual'},privateContent:{cursor:state.cursor}}).catch(()=>{});
+      };
+      function switchPage(page, persist=true) {
+        state.page=page;
+        root.querySelectorAll('[data-page]').forEach(el=>el.setAttribute('aria-selected',String(el.dataset.page===page)));
+        root.querySelectorAll('.ht-panel').forEach(el=>el.hidden=el.id!=='ht-'+page);
+        if (page==='timeline') draw();
+        if (persist) save();
+      }
+      const glucose = hour => 6.1+.8*Math.sin(hour*.55)+.35*Math.sin(hour*1.5);
+      const hasGlucose = hour => !(hour>=12&&hour<13);
+      const valueText = hour => state.unit==='mmol' ? glucose(hour).toFixed(1)+' mmol/L' : Math.round(glucose(hour)*18)+' mg/dL';
+      const timeText = hour => {
+        const shifted=hour+{'Asia/Shanghai':0,'Asia/Bangkok':-1,'UTC':-8}[state.zone];
+        const wrapped=(shifted+24)%24;
+        return `${shifted<0?'前日 ':shifted>=24?'次日 ':''}${String(Math.floor(wrapped)).padStart(2,'0')}:${String(Math.round((wrapped%1)*60)).padStart(2,'0')}`;
+      };
+      const asleep = hour=>hour>=.5&&hour<7.5;
+      const walking = hour=>(hour>=9&&hour<=9.5)||(hour>=17&&hour<=17.5);
+      function detail() {
+        root.querySelector('#ht-cursor-title').textContent=timeText(state.cursor)+' · 联动详情';
+        const rows=[['血糖',hasGlucose(state.cursor)?valueText(state.cursor):'该时间无记录'],['心率',Math.round(72+10*Math.sin(state.cursor*.7))+' bpm'],['睡眠',asleep(state.cursor)?'睡眠阶段：示例轻睡':'该时间无睡眠记录'],['运动',walking(state.cursor)?'步行区间':'该时间无运动记录']];
+        if(state.tracks.includes('oxygen')) rows.push(['血氧',asleep(state.cursor)?'97% · 分段汇总':'该时间无记录']);
+        if(state.tracks.includes('skin')) rows.push(['皮温',asleep(state.cursor)?'32.2 °C · 分段汇总':'该时间无记录']);
+        root.querySelector('#ht-cursor-detail').innerHTML=rows.map(([label,value])=>`<div class="ht-row ht-between"><span class="ht-muted">${label}</span><span class="ht-number">${value}</span></div>`).join('');
+      }
+      function draw() {
+        if(state.page!=='timeline')return;
+        const svg=root.querySelector('#ht-chart');
+        const w=Math.max(260,svg.getBoundingClientRect().width||360),left=43,right=w-9,plotW=right-left;
+        const enabled=state.tracks;
+        const h=181+enabled.length*(state.compact?48:57);
+        svg.setAttribute('viewBox',`0 0 ${w} ${h}`);
+        const x=hour=>left+hour/24*plotW;
+        let content=`<title>合成示例：各轨道共享一天的时间轴</title><desc>血糖十二点至十三点设有示例缺口。拖动下方游标可读同一时间的详情。</desc>`;
+        const scale=state.unit==='mmol'?1:18;
+        for(const value of [4,6,8]) {
+          const y=145-(value-3)*20;
+          content+=`<line class="ht-grid" x1="${left}" y1="${y}" x2="${right}" y2="${y}"/><text x="${left-7}" y="${y+4}" text-anchor="end">${Math.round(value*scale)}</text>`;
+        }
+        let d='',newSegment=true;
+        for(let hour=0;hour<=24;hour+=.25){if(!hasGlucose(hour)){newSegment=true;continue;}d+=(newSegment?'M':'L')+x(hour).toFixed(2)+','+(145-(glucose(hour)-3)*20).toFixed(2);newSegment=false;}
+        content+=`<path class="ht-trace" d="${d}"/>`;
+        let laneY=171;
+        for(const track of enabled) {
+          const height=state.compact?48:57;
+          const label={heart:'心率',sleep:'睡眠',exercise:'运动',oxygen:'血氧',skin:'皮温'}[track];
+          content+=`<text x="3" y="${laneY+5}">${label}</text><line class="ht-grid" x1="${left}" y1="${laneY+height-15}" x2="${right}" y2="${laneY+height-15}"/>`;
+          const unit={heart:'bpm',oxygen:'%',skin:'°C'}[track];
+          if(unit)content+=`<text x="3" y="${laneY+21}">${unit}</text>`;
+          if(track==='heart'){
+            let path='';for(let hour=0;hour<=24;hour+=.5)path+=(hour?'L':'M')+x(hour).toFixed(1)+','+(laneY+14-9*Math.sin(hour*.7)).toFixed(1);
+            content+=`<path class="ht-heart-trace" d="${path}"/>`;
+          }else if(track==='sleep'){
+            for(let i=0;i<7;i++)content+=`<rect class="ht-sleepbar" x="${x(.5+i)}" y="${laneY+4+(i%3)*4}" width="${plotW/24-.5}" height="${18-(i%3)*4}" opacity="${.6+(i%3)*.15}"/>`;
+          }else if(track==='exercise'){
+            for(const start of [9,17])content+=`<rect class="ht-eventbar" x="${x(start)}" y="${laneY+4}" width="${plotW/24*.5}" height="18"/>`;
+          }else {
+            content+=`<path class="ht-heart-trace" d="M${x(.5)},${laneY+18}L${x(2)},${laneY+12}L${x(4)},${laneY+19}L${x(5)},${laneY+9}L${x(7.5)},${laneY+16}"/>`;
+          }
+          laneY+=height;
+        }
+        content+=`<line class="ht-guide" x1="${x(state.cursor)}" y1="14" x2="${x(state.cursor)}" y2="${h-25}"/>`;
+        for(const hour of [0,8,16,24])content+=`<text x="${x(hour)}" y="${h-7}" text-anchor="${hour===0?'start':hour===24?'end':'middle'}">${timeText(hour).replace(':00','')}</text>`;
+        svg.innerHTML=content;
+        detail();
+      }
+      function renderAnalysis() {
+        const walk=state.event==='walk';
+        root.querySelector('#ht-analysis-detail').innerHTML=`<div class="ht-row ht-between"><span>${walk?'步行':'睡眠'}</span><span class="ht-number">${walk?timeText(9)+'–'+timeText(9.5):timeText(.5)+'–'+timeText(7.5)}</span></div><hr class="ht-divider"><div class="ht-row ht-between"><span>观察窗口</span><span>事件前 ${state.before} 分钟 / 后 ${state.after} 分钟</span></div><div class="ht-line"><span>血糖数据<span class="ht-value">示例中保留原值、显示策略和缺口</span></span><span>可查看</span></div><p class="ht-muted ht-small">${walk?'按事件前、期间、后分组比较。':'按睡眠阶段关联相同绝对时间的血糖。'}序列可继续展开给 Agent。</p>`;
+      }
+      root.querySelectorAll('[data-page]').forEach(el=>el.addEventListener('click',()=>switchPage(el.dataset.page)));
+      root.querySelectorAll('[data-track]').forEach(el=>el.addEventListener('click',()=>{
+        const track=el.dataset.track;state.tracks=state.tracks.includes(track)?state.tracks.filter(x=>x!==track):[...state.tracks,track];
+        el.setAttribute('aria-pressed',String(state.tracks.includes(track)));draw();save();
+      }));
+      root.querySelector('#ht-cursor').value=String(state.cursor);
+      root.querySelector('#ht-cursor').addEventListener('input',ev=>{state.cursor=Number(ev.target.value);draw();save();});
+      root.querySelector('#ht-chart').addEventListener('click',ev=>{
+        const bounds=ev.currentTarget.getBoundingClientRect();state.cursor=Math.max(0,Math.min(23.75,Math.round((ev.clientX-bounds.left-43)/(bounds.width-52)*24*4)/4));
+        root.querySelector('#ht-cursor').value=String(state.cursor);draw();save();
+      });
+      root.querySelector('#ht-unit').value=state.unit;
+      root.querySelector('#ht-unit').addEventListener('change',ev=>{state.unit=ev.target.value;draw();save();});
+      root.querySelector('#ht-zone').value=state.zone;
+      root.querySelector('#ht-zone').addEventListener('change',ev=>{
+        state.zone=ev.target.value;
+        root.querySelector('#ht-freshness').textContent=`示例：同一上海日期区间，时间改以 ${state.zone} 显示；保留原始 offset。`;
+        draw();renderAnalysis();save();
+      });
+      root.querySelector('#ht-date').addEventListener('change',ev=>{root.querySelector('#ht-freshness').textContent=`示例日期 ${ev.target.value} · 此草案仅演示交互。`;});
+      for(const id of ['event','before','after'])root.querySelector('#ht-'+id).addEventListener('change',ev=>{state[id]=id==='event'?ev.target.value:Number(ev.target.value);renderAnalysis();});
+      function connectionRequirements() {
+        const common={transport:'Streamable HTTP',read_only:true,scope:{days:root.querySelector('#ht-mcp-range').value,health_types:'用户选择'},status:'草案，尚未连接'};
+        if(state.mcpMode==='local')return {...common,target:'兼容本机客户端',url:'http://127.0.0.1:18741/mcp',requires:['客户端支持 MCP 与认证配置','本机独立访问凭据'],chatgpt_direct_connection:false};
+        if(state.mcpMode==='https')return {...common,target:'ChatGPT',connection:'用户控制的 HTTPS 网关',requires:['ChatGPT 网页自定义 MCP 入口','稳定 HTTPS 与 OAuth 授权','手机外连通道和前台运行验证'],android_app_usage:'待实测'};
+        return {...common,target:'ChatGPT',connection:'OpenAI Secure MCP Tunnel',requires:['ChatGPT 网页自定义 MCP 入口','Platform 隧道与组织/工作区权限','通道运行凭据（仅受控端保存）','Android 兼容客户端与联网验证'],android_app_usage:'待实测'};
+      }
+      root.querySelector('#ht-mcp-mode').addEventListener('change',ev=>{
+        state.mcpMode=ev.target.value;state.mcpRunning=false;
+        root.querySelector('#ht-mcp-status').textContent='待接入';
+        root.querySelector('[data-action="mcp-toggle"]').textContent='演示开启共享';
+        const info={tunnel:['目标：ChatGPT','通过账号中的安全隧道连接','先验证账号权限与 Android 通道；不是 localhost 直连。'],https:['目标：ChatGPT','用户控制的 HTTPS 网关','需要 OAuth 与手机连接通道；按查询返回本地数据。'],local:['目标：兼容本机 MCP 客户端','http://127.0.0.1:18741/mcp','此地址供同机 MCP 客户端使用，不是 ChatGPT 的直连入口。']}[state.mcpMode];
+        const box=root.querySelector('#ht-mcp-endpoint');box.replaceChildren();
+        info.forEach((value,index)=>{const line=document.createElement(index===0?'span':'p');line.textContent=value;if(index!==1)line.className='ht-muted ht-small';box.appendChild(line);});
+        root.querySelector('#ht-mcp-config').textContent=JSON.stringify(connectionRequirements(),null,2);
+        root.querySelector('#ht-mcp-message').textContent='草案：接入条件验证后才能实际共享；此处只演示界面状态。';save();
+      });
+      root.querySelectorAll('[data-action]').forEach(el=>el.addEventListener('click',()=>{
+        const action=el.dataset.action;
+        if(action==='refresh')root.querySelector('#ht-freshness').textContent='示例：刷新完成；各数据源的成功时间与缺口分别记录。';
+        if(action==='event'){state.event='walk';root.querySelector('#ht-event').value='walk';renderAnalysis();switchPage('analysis');}
+        if(action==='export-context') {switchPage('export');root.querySelector('#ht-export-result').textContent='示例：已选事件前后窗口，导出包含血糖与事件来源信息。';}
+        if(action==='export'){
+          const begin=root.querySelector('#ht-export-start').value,end=root.querySelector('#ht-export-end').value,result=root.querySelector('#ht-export-result');
+          if(!begin||!end||begin>end){result.setAttribute('role','alert');result.textContent='开始日期必须不晚于结束日期。';}
+          else{result.removeAttribute('role');result.textContent='示例：正式页面将在这里打开系统保存或分享。此草案不生成健康文件。';}
+        }
+        if(action==='mcp-toggle'){
+          state.mcpRunning=!state.mcpRunning;state.credentialRevoked=false;
+          root.querySelector('#ht-mcp-status').textContent=state.mcpRunning?'示例：共享中':'示例：已停止';el.textContent=state.mcpRunning?'演示停止共享':'演示开启共享';
+          root.querySelector('#ht-mcp-message').textContent=state.mcpRunning?'示例状态：已选类型与日期范围生效。未运行真实 MCP 或通道。':'示例状态：服务已停止，客户端访问关闭。';
+        }
+        if(action==='mcp-config'){
+          const config=root.querySelector('#ht-mcp-config');config.hidden=!config.hidden;
+          config.textContent=JSON.stringify(connectionRequirements(),null,2);
+        }
+        if(action==='mcp-revoke'){state.credentialRevoked=true;state.mcpRunning=false;root.querySelector('#ht-mcp-status').textContent='示例：已撤销';root.querySelector('[data-action="mcp-toggle"]').textContent='演示开启共享';root.querySelector('#ht-mcp-message').textContent='示例：授权已撤销，已授权连接与快照访问立即失效。';}
+        if(action==='mcp-file'){switchPage('export');root.querySelector('#ht-export-result').textContent='选择概要 JSON、CSV 或完整数据包，保存后在 ChatGPT 中上传；可用格式与大小按客户端确认。';}
+      }));
+      root.querySelector('#ht-samsung-enable').addEventListener('change',ev=>{
+        root.querySelectorAll('[data-source]').forEach(input=>input.disabled=!ev.target.checked);
+        root.querySelector('#ht-sources > p').textContent=ev.target.checked?'示例：本地 SDK 可用，读取开发模式与权限已开启。':'示例：读取已关闭，已有本地数据仍可查看。';
+      });
+      function renderDesign() {phone.style.setProperty('--ht-gap',state.compact?'9px':'14px');draw();}
+      if(globalThis.Tweak){const tweak=new Tweak({container:phone,onChange:renderDesign});tweak.addToggle(state,'compact',{label:'更紧凑的轨道与间距'});}
+      root.querySelectorAll('[data-track]').forEach(el=>el.setAttribute('aria-pressed',String(state.tracks.includes(el.dataset.track))));
+      switchPage(state.page,false);renderAnalysis();renderDesign();
+      new ResizeObserver(()=>draw()).observe(phone);
+      window.addEventListener('openai:set_globals',ev=>{
+        const restored=ev.detail?.globals?.widgetState?.modelContent;
+        if(restored&&pages.includes(restored.page))switchPage(restored.page,false);
+      });
+    })();
+  </script>
+</div>

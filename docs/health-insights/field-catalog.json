@@ -1,0 +1,61 @@
+{
+  "schema_version": "0.1.0",
+  "status": "initial_design_catalog_not_complete_sdk_mapping",
+  "metrics": {
+    "glucose": {
+      "unit": "mg/dL",
+      "type": "number",
+      "description": "Selected glucose presentation channel, policy required"
+    },
+    "device_glucose": {
+      "unit": "mg/dL",
+      "type": "number",
+      "description": "Device/raw channel when available"
+    },
+    "heart_rate": {
+      "unit": "bpm",
+      "type": "number"
+    },
+    "heart_rate_min": {
+      "unit": "bpm",
+      "type": "number"
+    },
+    "heart_rate_max": {
+      "unit": "bpm",
+      "type": "number"
+    },
+    "oxygen_saturation": {
+      "unit": "%",
+      "type": "number"
+    },
+    "skin_temperature": {
+      "unit": "Cel",
+      "type": "number"
+    },
+    "duration": {
+      "unit": "s",
+      "type": "number"
+    },
+    "distance": {
+      "unit": "m",
+      "type": "number"
+    },
+    "steps": {
+      "unit": "count",
+      "type": "number"
+    },
+    "speed": {
+      "unit": "m/s",
+      "type": "number"
+    },
+    "water_intake_goal": {
+      "unit": "mL",
+      "type": "number"
+    },
+    "height": {
+      "unit": "cm",
+      "type": "number"
+    }
+  },
+  "unmapped_policy": "Preserve optional raw fields, report normalization=partial; never guess units."
+}

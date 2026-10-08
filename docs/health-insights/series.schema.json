@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.juggluco.invalid/health/0.1.0/series.schema.json",
+  "title": "JugglucoNG canonical child sequence, design draft 0.1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "parent_record_id", "series_id", "sample_index", "time", "metrics", "attributes"],
+  "properties": {
+    "schema_version": {"const": "0.1.0"},
+    "parent_record_id": {"type": "string", "minLength": 1},
+    "series_id": {"type": "string", "minLength": 1},
+    "sample_index": {"type": "integer", "minimum": 0},
+    "time": {
+      "allOf": [
+        {"$ref": "record.schema.json#/$defs/time"},
+        {"properties": {"basis": {"const": "instant_interval"}}}
+      ]
+    },
+    "metrics": {
+      "type": "object",
+      "propertyNames": {"pattern": "^[a-z][a-z0-9_]*$"},
+      "additionalProperties": {"$ref": "record.schema.json#/$defs/metric"}
+    },
+    "attributes": {"type": "object"}
+  }
+}

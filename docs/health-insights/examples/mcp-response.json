@@ -1,0 +1,128 @@
+{
+  "schema_version": "0.1.0",
+  "snapshot_id": "synthetic-snapshot",
+  "data": [
+    {
+      "schema_version": "0.1.0",
+      "record_id": "synthetic-cgm-1",
+      "kind": "blood_glucose",
+      "granularity": "point",
+      "time": {
+        "basis": "instant_interval",
+        "start_utc": "2026-01-02T02:30:00Z",
+        "end_utc": "2026-01-02T02:30:00Z",
+        "start_epoch_ms": 1767321000000,
+        "end_epoch_ms": 1767321000000,
+        "original_offset": "+08:00"
+      },
+      "source": {
+        "provider": "juggluco",
+        "record_alias": "synthetic-cgm-1",
+        "app_id": "tk.glucodata.ng.dub",
+        "device_alias": null,
+        "sensor_alias": "synthetic-cgm",
+        "method": "cgm"
+      },
+      "metrics": {
+        "glucose": {
+          "value": 108,
+          "unit": "mg/dL",
+          "statistic": "instant"
+        },
+        "device_glucose": {
+          "value": 107,
+          "unit": "mg/dL",
+          "statistic": "instant"
+        }
+      },
+      "attributes": {
+        "glucose_policy": "main_sensor_display_v1",
+        "conversion_policy": "existing_GlucoseFormatter"
+      },
+      "quality": {
+        "normalization": "complete",
+        "origin": "measurement",
+        "flags": [
+          "synthetic_example"
+        ]
+      },
+      "relations": [],
+      "series_refs": [],
+      "source_updated_at_utc": "2026-01-02T12:00:00Z",
+      "imported_at_utc": "2026-01-02T12:00:00Z"
+    },
+    {
+      "schema_version": "0.1.0",
+      "record_id": "synthetic-heart-1",
+      "kind": "heart_rate",
+      "granularity": "interval",
+      "time": {
+        "basis": "instant_interval",
+        "start_utc": "2026-01-02T02:15:00Z",
+        "end_utc": "2026-01-02T02:20:00Z",
+        "start_epoch_ms": 1767320100000,
+        "end_epoch_ms": 1767320400000,
+        "original_offset": "+08:00"
+      },
+      "source": {
+        "provider": "samsung_health",
+        "record_alias": "synthetic-heart-1",
+        "app_id": "com.sec.android.app.shealth",
+        "device_alias": "synthetic-watch",
+        "sensor_alias": null,
+        "method": null
+      },
+      "metrics": {
+        "heart_rate": {
+          "value": 80,
+          "unit": "bpm",
+          "statistic": "mean"
+        },
+        "heart_rate_min": {
+          "value": 75,
+          "unit": "bpm",
+          "statistic": "min"
+        },
+        "heart_rate_max": {
+          "value": 90,
+          "unit": "bpm",
+          "statistic": "max"
+        }
+      },
+      "attributes": {},
+      "quality": {
+        "normalization": "complete",
+        "origin": "measurement",
+        "flags": [
+          "synthetic_example"
+        ]
+      },
+      "relations": [],
+      "series_refs": [
+        {
+          "series_id": "synthetic-heart-series",
+          "semantic_type": "interval_summaries",
+          "count": 2
+        }
+      ],
+      "source_updated_at_utc": "2026-01-02T12:00:00Z",
+      "imported_at_utc": "2026-01-02T12:00:00Z"
+    }
+  ],
+  "page": {
+    "next_cursor": null,
+    "has_more": false
+  },
+  "source_capture_times": {
+    "juggluco": "2026-01-02T12:00:00Z",
+    "samsung_health": "2026-01-02T12:00:00Z"
+  },
+  "coverage": {
+    "query_status": "synthetic_example",
+    "continuous_sampling_proven": false
+  },
+  "warnings": [
+    "SYNTHETIC_DATA",
+    "ILLUSTRATIVE_SUBSET"
+  ]
+}
