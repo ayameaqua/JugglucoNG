@@ -1114,6 +1114,10 @@ class AnytimeBleManager(
         stopBeforeId: Int = Int.MAX_VALUE,
     ) {
         if (phase != Phase.STREAMING) return
+        if (!hasUsableHistoryTimeline()) {
+            Log.i(TAG, "Deferring history backfill ($reason) until the first live timeline anchor")
+            return
+        }
         if (isCt5() && !isCt5HistoryWindowOpen(reason, fromId, stopBeforeId)) return
         if (isCt5() && ct5HistoryHealth.isPausedForThisConnection()) {
             Log.i(
@@ -1201,7 +1205,7 @@ class AnytimeBleManager(
     }
 
     private fun hasUsableHistoryTimeline(): Boolean =
-        glucoseTimelineStartAtMs > 0L || sensorStartAtMs > 0L
+        glucoseTimelineStartAtMs > 0L
 
     private fun freshAutoBackfillStartId(anchorId: Int): Int =
         (anchorId - FRESH_AUTO_BACKFILL_RECORDS + 1).coerceAtLeast(0)
