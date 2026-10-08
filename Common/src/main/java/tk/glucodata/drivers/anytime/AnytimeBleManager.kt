@@ -3655,6 +3655,7 @@ class AnytimeBleManager(
             val firstLiveId = records.maxOfOrNull { it.glucoseId }
             if (firstLiveId != null) {
                 val intervalMs = profile.readingIntervalMinutes * 60L * 1000L
+                clearStaleRuntimeStateBeforeLiveRecord(firstLiveId)
                 updateTimelineFromLiveGlucoseId(firstLiveId, System.currentTimeMillis(), intervalMs)
             }
             enterStreaming("Raw glucose during handshake")
@@ -3765,20 +3766,12 @@ class AnytimeBleManager(
             lastIwNa = rec.iwNa
             lastIbNa = rec.ibNa
             lastTemperatureC = rec.temperatureC
-            val sampleMs = if (push && anchorMs > 0L && anchorId >= rec.glucoseId) {
-                // Live pushes are wall-clock anchored. The transmitter glucose id is monotonic,
-                // but CT4 cadence/profile metadata can be wrong early in a new session; anchoring
-                // live packets to sensorStartAtMs makes fresh readings appear several minutes old
-                // and trips the loss-of-sensor alarm.
-                anchorMs - (anchorId - rec.glucoseId).toLong() * intervalMs
-            } else if (glucoseTimelineStartAtMs > 0L) {
-                glucoseTimelineStartAtMs + rec.glucoseId.toLong() * intervalMs
-            } else if (sensorStartAtMs > 0L) {
-                sensorStartAtMs + rec.glucoseId.toLong() * intervalMs
-            } else {
-                now - rec.indexInPacket * intervalMs
-            }
-            anchorSensorTimelineIfNeeded(rec.glucoseId, sampleMs, intervalMs)
+            val sampleMs = anytimeTimelineSampleMs(
+                timelineStartMs = glucoseTimelineStartAtMs,
+                glucoseId = rec.glucoseId,
+                intervalMs = intervalMs,
+                fallbackMs = now - rec.indexInPacket * intervalMs,
+            )
             val result = AnytimeAlgorithm.compute(
                 record = rec,
                 qr = qr,
@@ -3933,7 +3926,9 @@ class AnytimeBleManager(
             return
         }
         val intervalMs = profile.readingIntervalMinutes * 60L * 1000L
-        anchorSensorTimelineIfNeeded(rec.glucoseId, System.currentTimeMillis(), intervalMs)
+        val now = System.currentTimeMillis()
+        clearStaleRuntimeStateBeforeLiveRecord(rec.glucoseId)
+        updateTimelineFromLiveGlucoseId(rec.glucoseId, now, intervalMs)
         val sampleMs = if (glucoseTimelineStartAtMs > 0L) {
             glucoseTimelineStartAtMs + rec.glucoseId.toLong() * intervalMs
         } else if (sensorStartAtMs > 0L) {
@@ -4261,7 +4256,6 @@ class AnytimeBleManager(
                 sensorStartAtMs > 0L -> sensorStartAtMs + rec.glucoseId.toLong() * intervalMs
                 else -> now - (maxId - rec.glucoseId).toLong() * intervalMs
             }
-            anchorSensorTimelineIfNeeded(rec.glucoseId, sampleMs, intervalMs)
             if (!rec.hasGlucose) {
                 // Valid warm-up record: it anchors the timeline and nothing else.
                 tally.countWarmup()
@@ -4335,26 +4329,6 @@ class AnytimeBleManager(
             ensureNativeSensorShell()
             persistAlgorithmState()
         }
-    }
-
-    private fun anchorSensorTimelineIfNeeded(glucoseId: Int, sampleMs: Long, intervalMs: Long) {
-        if (glucoseId < 0 || intervalMs <= 0L) return
-        val projectedMs = if (glucoseTimelineStartAtMs > 0L) {
-            glucoseTimelineStartAtMs + glucoseId.toLong() * intervalMs
-        } else {
-            Long.MAX_VALUE
-        }
-        val futureToleranceMs = (intervalMs / 2L).coerceAtLeast(30_000L)
-        if (projectedMs <= sampleMs + futureToleranceMs) return
-
-        val anchoredStartMs = (sampleMs - glucoseId.toLong() * intervalMs).coerceAtLeast(1L)
-        val oldStart = glucoseTimelineStartAtMs
-        glucoseTimelineStartAtMs = anchoredStartMs
-        Log.i(
-            TAG,
-            "Anchoring glucose timeline from glucose id=$glucoseId " +
-                    "(oldStart=$oldStart newStart=$anchoredStartMs)"
-        )
     }
 
     /**

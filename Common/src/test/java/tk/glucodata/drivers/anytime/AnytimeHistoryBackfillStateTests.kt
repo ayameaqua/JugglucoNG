@@ -8,6 +8,44 @@ import org.junit.Test
 class AnytimeHistoryBackfillStateTests {
 
     @Test
+    fun yuwellIdsStayThreeMinutesApartDespiteReconnectJitterAndTimeZoneChanges() {
+        val start = 1_790_200_140_000L
+        val interval = 180_000L
+        var previous = anytimeTimelineSampleMs(start, 19, interval, start)
+        for (id in 20..6675) {
+            // Delivery can be early, delayed, or repeated after a reconnect.
+            val arrival = start + id * interval + (id % 7 - 3) * 25_000L
+            val time = anytimeTimelineSampleMs(start, id, interval, arrival)
+            assertEquals(interval, time - previous)
+            previous = time
+        }
+        val zone = java.util.TimeZone.getDefault()
+        try {
+            val before = anytimeTimelineSampleMs(start, 6000, interval, start)
+            java.util.TimeZone.setDefault(java.util.TimeZone.getTimeZone("Asia/Bangkok"))
+            assertEquals(before, anytimeTimelineSampleMs(start, 6000, interval, start + 3_600_000L))
+            java.util.TimeZone.setDefault(java.util.TimeZone.getTimeZone("Asia/Shanghai"))
+            assertEquals(before, anytimeTimelineSampleMs(start, 6000, interval, start - 75_000L))
+        } finally {
+            java.util.TimeZone.setDefault(zone)
+        }
+    }
+
+    @Test
+    fun allLivePipelinesUseTheSessionAnchor() {
+        var root = java.io.File(System.getProperty("user.dir")).absoluteFile
+        while (!java.io.File(root, "Common/src/main/java").isDirectory) root = root.parentFile
+        val manager = java.io.File(root, "Common/src/main/java/tk/glucodata/drivers/anytime/AnytimeBleManager.kt").readText()
+        val raw = manager.substringAfter("private fun processRawRecords(").substringBefore("private fun handleComputedGlucose(")
+        assertTrue(raw.contains("anytimeTimelineSampleMs("))
+        assertFalse(manager.contains("anchorSensorTimelineIfNeeded("))
+        assertFalse(raw.contains("anchorMs - (anchorId - rec.glucoseId)"))
+        val computed = manager.substringAfter("private fun handleComputedGlucose(").substringBefore("private fun handleCt5CurrentGlucose(")
+        assertTrue(computed.contains("clearStaleRuntimeStateBeforeLiveRecord(rec.glucoseId)"))
+        assertTrue(computed.contains("updateTimelineFromLiveGlucoseId(rec.glucoseId, now, intervalMs)"))
+    }
+
+    @Test
     fun ct5ProfileHorizonDoesNotStopLiveBoundedHistory() {
         assertFalse(
             shouldStopAtProfileHistoryEnd(

@@ -94,6 +94,18 @@ internal fun shouldReanchorTimeline(
     return liveId >= 0 && !haveTimelineStart
 }
 
+/** Absolute time from one session anchor; callback jitter and phone time zone are irrelevant. */
+internal fun anytimeTimelineSampleMs(
+    timelineStartMs: Long,
+    glucoseId: Int,
+    intervalMs: Long,
+    fallbackMs: Long,
+): Long = if (timelineStartMs > 0L && glucoseId >= 0 && intervalMs > 0L) {
+    timelineStartMs + glucoseId.toLong() * intervalMs
+} else {
+    fallbackMs
+}
+
 /**
  * The timeline anchor to start a process with.
  *
