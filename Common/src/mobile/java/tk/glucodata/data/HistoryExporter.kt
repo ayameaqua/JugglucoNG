@@ -23,9 +23,9 @@ object HistoryExporter {
 
     // Formatters are created per export so a process that stays alive while the
     // phone crosses time zones does not keep formatting in the zone it started in.
-    private fun csvDateFormat(): SimpleDateFormat =
+    private fun csvDateFormat(zone: TimeZone): SimpleDateFormat =
         SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).apply {
-            timeZone = TimeZone.getDefault()
+            timeZone = zone
         }
 
     private fun readableDateFormat(): SimpleDateFormat =
@@ -33,9 +33,9 @@ object HistoryExporter {
             timeZone = TimeZone.getDefault()
         }
 
-    private fun utcOffsetFormat(): SimpleDateFormat =
+    private fun utcOffsetFormat(zone: TimeZone): SimpleDateFormat =
         SimpleDateFormat("'UTC'XXX", Locale.US).apply {
-            timeZone = TimeZone.getDefault()
+            timeZone = zone
         }
 
     private fun csvCell(value: Any?): String {
@@ -108,8 +108,9 @@ object HistoryExporter {
                 // (issue #130): mirrors the on-screen/Nightscout projection. Empty when
                 // no calibration applies, so the raw Value/RawValue archive is untouched.
                 val viewModeOf = ExportCalibration.viewModeResolver()
-                val dateFormat = csvDateFormat()
-                val offsetFormat = utcOffsetFormat()
+                val exportZone = TimeZone.getDefault()
+                val dateFormat = csvDateFormat(exportZone)
+                val offsetFormat = utcOffsetFormat(exportZone)
                 context.contentResolver.openOutputStream(uri)?.use { outputStream ->
                     outputStream.bufferedWriter().use { writer ->
                         // Header — CalibratedValue sits in the glucose block, after RawValue.

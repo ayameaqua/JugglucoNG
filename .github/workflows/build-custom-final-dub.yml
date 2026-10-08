@@ -29,13 +29,36 @@ jobs:
       - name: Restore pinned JNI inputs
         run: scripts/restore-build-inputs.sh
 
+      - name: Test native Health Connect cursor races
+        run: |
+          g++ -std=c++17 -pthread -I Common/src/main/cpp \
+            Common/src/test/cpp/HealthConnectCursorTests.cpp -o /tmp/hc-cursor-tests
+          /tmp/hc-cursor-tests
+
       - name: Run focused regression tests
         run: |
-          ./gradlew             :Common:testMobileDebugUnitTest             --tests tk.glucodata.AnytimeHealthConnectExportTests             --tests tk.glucodata.HealthConnectNativeRecordTests             --tests tk.glucodata.HealthConnectNullSensorptrTests             --tests tk.glucodata.drivers.anytime.AnytimeHistoryBackfillStateTests             --tests tk.glucodata.data.HistoryImportParserTests             --no-daemon             --stacktrace
+          ./gradlew :Common:testMobileDebugUnitTest \
+            --tests 'tk.glucodata.*HealthConnect*' \
+            --tests tk.glucodata.drivers.anytime.AnytimeHistoryBackfillStateTests \
+            --tests tk.glucodata.drivers.anytime.AnytimeCt5Tests \
+            --tests tk.glucodata.data.HistoryImportParserTests \
+            --no-daemon --stacktrace
 
       - name: Build arm64 DUB APK
         run: |
-          ./gradlew             :Common:assembleMobileReleasedub             -PjugglucoAbi=arm64-v8a             --no-daemon             --stacktrace
+          ./gradlew :Common:assembleMobileReleasedub \
+            -PjugglucoAbi=arm64-v8a --no-daemon --stacktrace
+
+      - name: Upload regression results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: JugglucoNG-custom-final-tests
+          path: |
+            Common/build/test-results/testMobileDebugUnitTest/*.xml
+            Common/build/reports/tests/testMobileDebugUnitTest/
+          if-no-files-found: warn
+          retention-days: 30
 
       - name: Upload DUB APK
         uses: actions/upload-artifact@v7
@@ -43,4 +66,4 @@ jobs:
           name: JugglucoNG-custom-final-dub-arm64
           path: Common/build/outputs/apk/mobile/releasedub/*.apk
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 30
