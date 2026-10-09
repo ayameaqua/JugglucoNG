@@ -928,30 +928,6 @@ public abstract class SuperGattCallback extends BluetoothGattCallback {
 
     }
 
-    boolean stopHealth = false;
-
-    private boolean dohealth(SuperGattCallback one) {
-        if (!isWearable) {
-            var blue = blueone;
-            if (blue == null)
-                return true; // false?
-            final var gatts = blue.gattcallbacks;
-            boolean other = gatts.size() > 1;
-            if (!other) {
-                return true; // TODO stopHealth=false
-            }
-            if (stopHealth)
-                return false;
-            for (var el : gatts) {
-                if (el != one)
-                    el.stopHealth = true;
-            }
-            return true;
-        } else {
-            return false;
-        }
-    }
-
     /**
      * The native record this callback's readings land in, or 0 if it has none.
      * Drivers that write by name and keep no dataptr (iCan) override this.
@@ -965,9 +941,9 @@ public abstract class SuperGattCallback extends BluetoothGattCallback {
             return;
         }
         final long sensorptr = nativeSensorPtr();
-        // Checked before dohealth(): claiming the export for a sensor with nothing to hand over
-        // would stop every other sensor from exporting.
-        if (sensorptr == 0L || !dohealth(this)) {
+        // Every sensor keeps its own export cursor. Main-sensor selection affects
+        // display/alarms, and must not suppress another sensor's health history.
+        if (sensorptr == 0L) {
             return;
         }
         var health = HealthConnectAccess.get();

@@ -54,7 +54,7 @@ class HealthConnectNullSensorptrTests {
     }
 
     @Test
-    fun exportChecksSensorptrBeforeClaimingHealthConnect() {
+    fun everySensorExportsIndependentlyAfterCheckingSensorptr() {
         val callback = flattened("Common/src/main/java/tk/glucodata/SuperGattCallback.java")
         assertEquals(
             "every export in SuperGattCallback goes through exportToHealthConnect()",
@@ -64,12 +64,8 @@ class HealthConnectNullSensorptrTests {
         val export = callback.substring(callback.indexOf("protected final void exportToHealthConnect()"))
             .substringBefore("protected void handleGlucoseResult(")
         val check = export.indexOf("sensorptr == 0L")
-        val claim = export.indexOf("dohealth(this)")
-        assertTrue("exportToHealthConnect must check sensorptr and call dohealth", check >= 0 && claim >= 0)
-        assertTrue(
-            "dohealth() sets stopHealth on every other callback, so a sensor with nothing to export must not reach it",
-            check < claim,
-        )
+        assertTrue(check >= 0 && check < export.indexOf("health.writeAll("))
+        assertTrue("No callback may suppress another sensor", !callback.contains("stopHealth") && !callback.contains("dohealth("))
         // The export goes through the HealthConnect registry now; the pointer this
         // method guards is still what the payload is built from.
         assertTrue(export.contains("health.writeAll(sensorptr, SerialNumber)"))

@@ -16,6 +16,29 @@ class HealthConnectRecordVersionsTest {
     private val context get() = RuntimeEnvironment.getApplication()
     @Before fun reset() { context.deleteDatabase("health-connect-versions.db") }
 
+    @Test fun metadataCorrectionAdvancesOnceWithoutChangingValueOrId() {
+        val store = HealthConnectRecordVersions(context) { 1000L }
+        val legacy = store.batch { it("juggluco-ng:glucose:tx:1800000000", 200) }
+        val fixed = store.batch("Yuwell/CT4/cgm-stable") { it("juggluco-ng:glucose:tx:1800000000", 200) }
+        assertTrue(fixed > legacy)
+        assertEquals(fixed, store.batch("Yuwell/CT4/cgm-stable") { it("juggluco-ng:glucose:tx:1800000000", 200) })
+        assertEquals(setOf("tx"), store.sensorAliases())
+        store.close()
+    }
+
+    @Test fun additiveMigrationRetainsLegacyRevisionAndAliasesIncludingColons() {
+        context.openOrCreateDatabase("health-connect-versions.db", 0, null).use { db ->
+            db.execSQL("CREATE TABLE revisions(record_id TEXT PRIMARY KEY,mgdl INTEGER NOT NULL,revision INTEGER NOT NULL)")
+            db.execSQL("INSERT INTO revisions VALUES('juggluco-ng:glucose:AA:BB:1800000000',200,999)")
+            db.version = 1
+        }
+        val store = HealthConnectRecordVersions(context) { 900L }
+        assertEquals(999L, store.batch { it("juggluco-ng:glucose:AA:BB:1800000000", 200) })
+        assertEquals(setOf("AA:BB"), store.sensorAliases())
+        assertEquals(1000L, store.batch("real-device") { it("juggluco-ng:glucose:AA:BB:1800000000", 200) })
+        store.close()
+    }
+
     @Test fun retryAndRestartReuseVersionButCorrectionsAdvanceEvenWhenClockMovesBack() {
         var now = 1000L
         var store = HealthConnectRecordVersions(context) { now }

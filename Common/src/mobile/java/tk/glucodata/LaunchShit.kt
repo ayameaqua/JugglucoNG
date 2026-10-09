@@ -34,6 +34,7 @@ class LaunchShit(val activity: ActivityResultCaller) {
         activity.registerForActivityResult(requestPermissionActivityContract) { granted ->
             if (granted.containsAll(HealthConnection.PERMISSIONS)) {
                 HealthConnection.hasPermission = true
+                HealthConnection.syncStoredSensors()
                 Log.i(LOG_ID, "requestPermissions granted")
             } else {
                 HealthConnection.hasPermission = false

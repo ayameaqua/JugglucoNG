@@ -5208,6 +5208,14 @@ class AnytimeBleManager(
              else "K：${q?.takeIf { it.hasAlgorithmCalibration }?.k ?: .30f} · R：${q?.takeIf { it.hasAlgorithmCalibration }?.r ?: 50f}\n") +
             "电压模式：$voltageFlag (${if (q != null) type else "默认"})\n" +
             (if (q?.hasAlgorithmCalibration != true) "正在使用默认计算参数" else if (!matched) "旧版参数归属未确认，请核对当前探头" else "二维码参数已进入当前计算配置；运行值以本周期采样为准") +
+            (lastAlgorithmResult?.modelTrace?.let { trace ->
+                fun n(v: Float) = if (v.isFinite()) String.format(java.util.Locale.US, "%.3f", v) else "未初始化"
+                "\n最近实际计算：ID=${trace.glucoseId} · ${time(lastGlucoseAtMs)} · ${lastAlgorithmResult?.modelInputPath ?: "未知路径"}" +
+                    "\n内存模型起点：${if (trace.seedGlucoseId >= 0) "ID=${trace.seedGlucoseId}" else "已恢复连续状态，起点未知"}" +
+                    "\n运行 K0=${n(trace.k0)} · Iw=${n(trace.iwNa)} nA · T原始=${n(trace.rawTemperatureC)}°C · T有效=${n(trace.effectiveTemperatureC)}°C" +
+                    "\n温度因子=${n(trace.temperatureMultiplier)} · 步长=${n(trace.kAuto)} · 前值=${n(trace.previousFilteredMmol)}" +
+                    "\n滤波前=${n(trace.unfilteredMmol)} · 滤波后=${n(trace.filteredMmol)} · 本地校准后=${n(lastAlgorithmResult?.mmol ?: Float.NaN)} mmol/L"
+            } ?: "\n最近实际计算：暂无可核对采样；上面的 K0 为配置值") +
             (manualHistoryRewrite?.let { "\n历史修订：${it.status}" } ?: "")
     }
 
@@ -5940,7 +5948,7 @@ class AnytimeBleManager(
                     "Iw=${"%.2f".format(r.iwNa)} nA · Ib=${"%.2f".format(r.ibNa)} nA · T=${"%.1f".format(r.temperatureC)}°C"
         }
         if (r.source == AnytimeAlgorithm.Source.MODEL) {
-            return "Reference App model (no native .so) · K0=${AnytimeAlgorithm.effectiveModelK0(qr)} · R/voltage: raw lane only\n" +
+            return "Reference App model (no native .so) · actual K0=${r.modelTrace?.k0 ?: "not captured"} · R/voltage: raw lane only\n" +
                     "Iw=${"%.2f".format(r.iwNa)} nA · Ib=${"%.2f".format(r.ibNa)} nA · T=${"%.1f".format(r.temperatureC)}°C"
         }
         if (r.source == AnytimeAlgorithm.Source.NATIVE_PORT) {

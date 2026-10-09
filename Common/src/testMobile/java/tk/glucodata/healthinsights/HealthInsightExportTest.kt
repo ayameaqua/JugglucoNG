@@ -43,6 +43,9 @@ class HealthInsightExportTest {
                 sensorSerial = if (n % 2 == 0) "transmitter-a" else "transmitter-b", value = 100f + n % 40,
                 rawValue = 90f + n % 40, rate = null, source = if (n % 2 == 0) "sensor" else "nightscout", firstStoredAt = 1) })
             db.readingDisplayDao().sealAll(listOf(ReadingDisplay(ReadingDisplay.minuteOf(stamp), "transmitter-a", 117f, 1, 42L, stamp)))
+            val hcSecond = stamp / 1000L * 1000L
+            assertEquals(listOf(stamp), db.historyDao().getSensorReadingsInTimeRange("transmitter-a", hcSecond, hcSecond + 1000).map { it.timestamp })
+            assertEquals(300, db.historyDao().healthSourcePage("transmitter-a", Long.MAX_VALUE, 300).size)
             db.readingUncertaintyDao().insertAll(listOf(ReadingUncertainty("transmitter-a", ReadingDisplay.minuteOf(stamp), 80f, 120f, .9f, null, null)))
             db.journalDao().upsertEntry(JournalEntryEntity(timestamp = stamp, sensorSerial = "transmitter-a", entryType = "note", title = "synthetic", note = "complete note",
                 amount = null, glucoseValueMgDl = null, durationMinutes = 30, intensity = null, insulinPresetId = null, source = "manual", sourceRecordId = "private-source-id", createdAt = 1, updatedAt = 1))
@@ -60,6 +63,10 @@ class HealthInsightExportTest {
                 val glucose = read(a, "glucose.jsonl").lineSequence().filter { it.isNotBlank() }.map(::JSONObject).toList()
                 assertEquals(1005, glucose.size)
                 assertEquals(2, glucose.map { it.getJSONObject("source").getString("sensor_alias") }.toSet().size)
+                val catalog = read(a, "glucose-sources.jsonl").lineSequence().filter(String::isNotBlank).map(::JSONObject).toList()
+                assertEquals(2, catalog.size)
+                assertEquals(catalog.map { it.getString("local_lookup_id") }.toSet(), glucose.map { it.getJSONObject("source").getString("local_lookup_id") }.toSet())
+                assertTrue(glucose.all { it.getJSONObject("source").isNull("wear_session_alias") })
                 assertEquals(stamp, glucose.first().getJSONObject("time").getLong("start_epoch_ms"))
                 assertEquals(90.0, glucose.first().getJSONObject("metrics").getJSONObject("device_glucose").getDouble("value"), 0.0)
                 for (name in listOf("glucose.jsonl", "samsung-records.jsonl", "series.jsonl", "journal.jsonl", "recorded-display.jsonl", "uncertainty.jsonl")) {

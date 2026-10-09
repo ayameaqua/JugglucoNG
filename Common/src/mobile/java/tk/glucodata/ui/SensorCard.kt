@@ -2432,6 +2432,10 @@ fun SensorCard(
 
             // --- ACTION BUTTONS (Always Visible) ---
             Spacer(modifier = Modifier.height(8.dp))
+            OutlinedButton(onClick = {
+                context.startActivity(android.content.Intent(context, tk.glucodata.healthinsights.HealthInsightsActivity::class.java)
+                    .putExtra("source_serial", sensor.serial))
+            }, modifier = Modifier.fillMaxWidth()) { Text("查询该传感器的健康数据来源") }
 
             // AiDex: Calibration history list, then Calibrate button, then Reset | Pair/Unpair row
             if (sensor.isAidex) {

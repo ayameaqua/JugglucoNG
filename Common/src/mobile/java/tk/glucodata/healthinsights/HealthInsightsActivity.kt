@@ -23,6 +23,9 @@ import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import tk.glucodata.data.HistoryDatabase
 import tk.glucodata.data.HistoryReading
+import tk.glucodata.HealthConnectSources
+import tk.glucodata.HealthConnection
+import tk.glucodata.SensorVisuals
 import tk.glucodata.ui.JugglucoTheme
 import tk.glucodata.ui.util.GlucoseFormatter
 import java.io.File
@@ -42,7 +45,34 @@ private fun Insights(activity: HealthInsightsActivity) {
     var enabled by remember { mutableStateOf(coordinator.settings.getBoolean("enabled", false)) }
     var days by remember { mutableIntStateOf(coordinator.settings.getInt("days", 30)) }
     var customDays by remember { mutableStateOf(days.toString()) }
-    var tab by remember { mutableIntStateOf(0) }
+    var tab by remember { mutableIntStateOf(if (activity.intent.hasExtra("source_serial")) 3 else 0) }
+    val sourceStore = remember { HealthConnectSources(activity) }
+    DisposableEffect(Unit) { onDispose { sourceStore.close() } }
+    var sources by remember { mutableStateOf(emptyList<HealthConnectSources.Source>()) }
+    var sourceQuery by remember { mutableStateOf(activity.intent.getStringExtra("source_serial") ?: "") }
+    var pickedSource by remember { mutableStateOf<HealthConnectSources.Source?>(null) }
+    var sourceReadings by remember { mutableStateOf(emptyList<HistoryReading>()) }
+    var sourceMessage by remember { mutableStateOf("") }
+    suspend fun lookupSource(query: String) {
+        val result = withContext(Dispatchers.IO) {
+            val source = sourceStore.find(query.trim())
+            val exact = sourceStore.lookup(query.trim())
+            val readings = source?.let {
+                val dao = HistoryDatabase.getInstance(activity).historyDao()
+                // Native HC IDs/times use whole seconds; Room can retain the
+                // original millisecond component. Match that UTC second only.
+                if (exact != null) dao.getSensorReadingsInTimeRange(it.serial, exact.epochMs, exact.epochMs + 1000L)
+                else dao.healthSourcePage(it.serial, Long.MAX_VALUE, 300)
+            }.orEmpty()
+            Triple(source, readings, exact)
+        }
+        pickedSource = result.first; sourceReadings = result.second
+        sourceMessage = when {
+            result.first == null -> "未找到来源。可输入来源 ID、完整 UID 或本应用保存的 Health Connect 记录 ID。"
+            result.third != null -> "佩戴周期：${result.third!!.wearId ?: "历史归属未确定"}；${if (result.third!!.uploaded) "该记录已完成提交" else "该记录等待提交或重试"}"
+            else -> "最近 ${result.second.size} 条本地 Auto／Raw 数据；导出按钮仍包含全部来源与历史。"
+        }
+    }
     var busy by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf("") }
     var health by remember { mutableStateOf(emptyList<JSONObject>()) }
@@ -65,14 +95,16 @@ private fun Insights(activity: HealthInsightsActivity) {
             states = coordinator.store.states()
             health = coordinator.store.recent(System.currentTimeMillis() - 7 * 86400_000L)
             glucose = HistoryDatabase.getInstance(activity).historyDao().getReadingsSince(System.currentTimeMillis() - 7 * 86400_000L)
+            HistoryDatabase.getInstance(activity).historyDao().getAllSensorSerials().forEach { HealthConnectSources.resolve(activity, sourceStore, it) }
+            sources = sourceStore.all()
             permissionGranted = runCatching { coordinator.adapter.granted(selected) }.getOrDefault(emptySet())
         }
     }
     fun refresh(force: Boolean) { scope.launch { busy = true; try { coordinator.refresh(force) { message = it }; load() } catch (ex: Exception) { message = "读取失败：${ex.message}" } finally { busy = false } } }
-    LaunchedEffect(Unit) { busy = true; try { coordinator.refresh(false) { message = it }; load() } finally { busy = false } }
+    LaunchedEffect(Unit) { busy = true; try { coordinator.refresh(false) { message = it }; load(); if (sourceQuery.isNotBlank()) lookupSource(sourceQuery) } finally { busy = false } }
     Scaffold(topBar = { TopAppBar(title = { Text("健康数据与血糖") }, navigationIcon = { TextButton(onClick = { activity.finish() }) { Text("返回") } }) }) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
-            TabRow(selectedTabIndex = tab) { listOf("联动时间线", "分析", "来源与授权").forEachIndexed { n, text -> Tab(selected = tab == n, onClick = { tab = n }, text = { Text(text) }) } }
+            ScrollableTabRow(selectedTabIndex = tab) { listOf("联动时间线", "分析", "来源与授权", "血糖来源").forEachIndexed { n, text -> Tab(selected = tab == n, onClick = { tab = n }, text = { Text(text) }) } }
             LazyColumn(Modifier.weight(1f).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(vertical = 12.dp)) {
                 item { if (busy) LinearProgressIndicator(Modifier.fillMaxWidth()); if (message.isNotEmpty()) Text(message, style = MaterialTheme.typography.bodySmall) }
                 if (tab == 0) {
@@ -102,8 +134,26 @@ private fun Insights(activity: HealthInsightsActivity) {
                         ElevatedCard { Column(Modifier.padding(12.dp)) {
                             Text("${if (row.optString("kind") == "sleep") "睡眠" else "运动"} · ${localTime(time.optString("start_utc"))}")
                             if (groups.isEmpty()) Text("当前浏览窗口内没有区间重叠的有效血糖点")
-                            groups.entries.forEachIndexed { n, (_, readings) -> Text("血糖来源 ${n + 1}：${readings.size} 点，区间均值 ${displayGlucose(readings.map { it.value }.average().toFloat())}；范围 ${displayGlucose(readings.minOf { it.value })}–${displayGlucose(readings.maxOf { it.value })}") }
+                            groups.forEach { (serial, readings) -> Text("${sources.firstOrNull { it.serial == serial }?.label ?: serial}：${readings.size} 点，区间均值 ${displayGlucose(readings.map { it.value }.average().toFloat())}；范围 ${displayGlucose(readings.minOf { it.value })}–${displayGlucose(readings.maxOf { it.value })}") }
                         } }
+                    }
+                } else if (tab == 3) {
+                    item {
+                        Text("各传感器独立记录与上传", style = MaterialTheme.typography.titleMedium)
+                        Text("来源 ID 不随连接顺序或主传感器选择改变。Health Connect 的设备信息包含该 ID；其他应用是否显示它由对方决定。未确定的旧佩戴周期保留未知。", style = MaterialTheme.typography.bodySmall)
+                        OutlinedTextField(sourceQuery, { sourceQuery = it }, label = { Text("来源 ID／完整 UID／Health Connect 记录 ID") }, modifier = Modifier.fillMaxWidth())
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(enabled = !busy, onClick = { scope.launch { lookupSource(sourceQuery) } }) { Text("查询") }
+                            OutlinedButton(enabled = !busy, onClick = { HealthConnection.syncStoredSensors(replayAll = true); message = "已安排所有本地传感器有效采样重新上传；需启用 Health Connect 并获得权限。记录 ID 保持一致，失败时保留未上传游标。" }) { Text("补传全部来源") }
+                        }
+                        if (sourceMessage.isNotBlank()) Text(sourceMessage, style = MaterialTheme.typography.bodySmall)
+                    }
+                    items(sources, key = { it.uid }) { source ->
+                        OutlinedButton(modifier = Modifier.fillMaxWidth(), onClick = { sourceQuery = source.shortId; scope.launch { lookupSource(sourceQuery) } }) { Text(source.label) }
+                    }
+                    pickedSource?.let { source -> item { Text("${source.label}\nUID：${source.uid}", style = MaterialTheme.typography.bodySmall) } }
+                    items(sourceReadings, key = { "${it.sensorSerial}:${it.timestamp}" }) { row ->
+                        Text("${DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS XXX").withZone(ZoneId.systemDefault()).format(Instant.ofEpochMilli(row.timestamp))}\nAuto ${displayGlucose(row.value)} · Raw ${displayGlucose(row.rawValue)}", style = MaterialTheme.typography.bodySmall)
                     }
                 } else {
                     item {
@@ -146,18 +196,18 @@ private fun displayGlucose(mgdl: Float): String = GlucoseFormatter.formatFromMgD
 @Composable
 private fun CombinedTimeline(glucose: List<HistoryReading>, health: List<JSONObject>) {
     val now = System.currentTimeMillis(); val from = now - 86400_000L
-    val colors = listOf(Color(0xff146b4c), Color(0xffad652d), Color(0xff7158a0))
     Canvas(Modifier.fillMaxWidth().height(200.dp)) {
         fun x(ms: Long) = ((ms - from).toFloat() / 86400_000 * size.width).coerceIn(0f, size.width)
         health.filter { it.optString("kind") in setOf("sleep", "exercise") }.forEach { row ->
             val t = row.getJSONObject("time"); val a = t.optLong("start_epoch_ms"); val b = t.optLong("end_epoch_ms")
             if (b >= from && a <= now) drawRect(if (row.optString("kind") == "sleep") Color(0xff8c79bc).copy(alpha = .22f) else Color(0xffe4ab42).copy(alpha = .3f), Offset(x(a), 0f), Size((x(b)-x(a)).coerceAtLeast(1f), size.height))
         }
-        glucose.groupBy { it.sensorSerial }.values.forEachIndexed { n, readings ->
+        glucose.groupBy { it.sensorSerial }.forEach { (serial, readings) ->
             val sorted = readings.filter { it.timestamp in from..now && it.value.isFinite() && it.value > 0 }.sortedBy { it.timestamp }
-            sorted.zipWithNext().forEach { (a,b) -> if (b.timestamp - a.timestamp <= 10 * 60_000) drawLine(colors[n % colors.size], Offset(x(a.timestamp), size.height * (1 - (a.value / 400f).coerceIn(0f, 1f))), Offset(x(b.timestamp), size.height * (1 - (b.value / 400f).coerceIn(0f, 1f))), strokeWidth = 2.dp.toPx()) }
+            sorted.zipWithNext().forEach { (a,b) -> if (b.timestamp - a.timestamp <= 10 * 60_000) drawLine(Color(SensorVisuals.colorArgb(serial)), Offset(x(a.timestamp), size.height * (1 - (a.value / 400f).coerceIn(0f, 1f))), Offset(x(b.timestamp), size.height * (1 - (b.value / 400f).coerceIn(0f, 1f))), strokeWidth = 2.dp.toPx()) }
         }
     }
     Text("${localTime(Instant.ofEpochMilli(from).toString())} → ${localTime(Instant.ofEpochMilli(now).toString())}", style = MaterialTheme.typography.bodySmall)
     Text("紫色：睡眠 · 橙色：运动 · 曲线：各血糖来源的存储 Auto 通道（0–${displayGlucose(400f)}）", style = MaterialTheme.typography.bodySmall)
+    glucose.map { it.sensorSerial }.distinct().forEach { serial -> Text(serial, color = Color(SensorVisuals.colorArgb(serial)), style = MaterialTheme.typography.bodySmall) }
 }

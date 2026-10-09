@@ -12,6 +12,23 @@ import org.junit.Test
  * few anchor points (packet 430 Glu ~ 5.06, K_AUTO(pack 430) ~ 1.3419).
  */
 class AnytimeCalibratorTests {
+    @Test fun diagnosticTraceUsesActualK0AndReadingItDoesNotAdvanceFilters() {
+        val cal = AnytimeCalibrator(1.19f)
+        val output = cal.computeNext(AnytimeRawRecord(0, 288, .08f, 15.75f, 31.7f, ByteArray(0)))
+        assertEquals(11.18f, output, .01f)
+        val state = cal.snapshot()
+        val trace = cal.trace()!!
+        assertEquals(1.19f, trace.k0, 0f)
+        assertEquals(31.7f, trace.effectiveTemperatureC, 0f)
+        assertEquals(output, trace.filteredMmol, 0f)
+        assertEquals(288, trace.seedGlucoseId)
+        repeat(10) { assertEquals(trace, cal.trace()); assertEquals(state, cal.snapshot()) }
+        cal.computeNext(AnytimeRawRecord(0, 289, .08f, 15.75f, 32f, ByteArray(0)))
+        assertEquals(31.775f, cal.trace()!!.effectiveTemperatureC, .001f)
+        assertEquals(288, cal.trace()!!.seedGlucoseId)
+        assertEquals(288, trace.glucoseId) // Previous immutable frame is not rewritten.
+        cal.restoreState(state); assertTrue(cal.trace() == null)
+    }
 
     private data class Row(val id: Int, val iw: Float, val t: Float)
 

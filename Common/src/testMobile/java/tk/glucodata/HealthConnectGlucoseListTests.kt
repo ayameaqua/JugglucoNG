@@ -5,6 +5,18 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class HealthConnectGlucoseListTests {
+    @Test fun simultaneousSensorsHaveIndependentIdsAndTruthfulDeviceMetadata() {
+        val time = 1_800_000_000L
+        fun records(serial: String, manufacturer: String, model: String) = GlucoseList(
+            Metadata.unknownRecordingMethod(device = androidx.health.connect.client.records.metadata.Device(0, manufacturer, model)), 0, 1, serial) { packed(time, 120, 1) }
+        val a = records("tx-a", "Yuwell", "CT4 · cgm-a")
+        val b = records("tx-b", "Sibionics", "GS1-P2 · cgm-b")
+        assertNotEquals(a.single().metadata.clientRecordId, b.single().metadata.clientRecordId)
+        assertEquals(a.single().time, b.single().time)
+        assertEquals("Yuwell", a.single().metadata.device!!.manufacturer)
+        assertEquals("GS1-P2 · cgm-b", b.single().metadata.device!!.model)
+        assertNull(a.single().zoneOffset)
+    }
     private fun packed(time: Long, glucose: Int, next: Int) =
         time or (glucose.toLong() shl 32) or (next.toLong() shl 48)
 

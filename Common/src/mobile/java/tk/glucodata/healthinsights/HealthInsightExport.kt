@@ -6,6 +6,7 @@ import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import tk.glucodata.BuildConfig
+import tk.glucodata.HealthConnectSources
 import tk.glucodata.data.HistoryDatabase
 import java.io.File
 import java.io.BufferedWriter
@@ -21,6 +22,8 @@ internal object HealthInsightExport {
             val cutoff = Instant.now()
             val folder = File(context.cacheDir, "health-export-${UUID.randomUUID()}").apply { check(mkdirs()) }
             val output = File(context.cacheDir, "juggluco-health-export-${cutoff.toEpochMilli()}.zip")
+            val sourceStore = HealthConnectSources(context)
+            val sourceCatalog = mutableMapOf<String, HealthConnectSources.Source>()
             try {
                 var samsungCount = 0
                 File(folder, "samsung-records.jsonl").bufferedWriter().use { records ->
@@ -44,12 +47,16 @@ internal object HealthInsightExport {
                                         val page = db.historyDao().healthExportPage(after, cutoff.toEpochMilli(), 1000)
                                         if (page.isEmpty()) break
                                         for (reading in page) {
+                                            val sensor = sourceCatalog.getOrPut(reading.sensorSerial) { HealthConnectSources.resolve(context, sourceStore, reading.sensorSerial) }
                                             after = reading.id
                                             val stamp = Instant.ofEpochMilli(reading.timestamp)
                                             val id = coordinator.store.alias("juggluco", "blood_glucose", "${reading.sensorSerial}:${reading.timestamp}")
                                             val row = HealthCanonical.base(id, "blood_glucose", HealthCanonical.time(stamp, stamp, null), "juggluco", cutoff)
                                             row.put("granularity", "point")
                                             row.getJSONObject("source").put("app_id", BuildConfig.APPLICATION_ID).put("sensor_alias", coordinator.store.alias("juggluco", "sensor", reading.sensorSerial)).put("method", reading.source)
+                                            row.getJSONObject("source").put("source_uid_alias", coordinator.store.alias("juggluco", "source_uid", sensor.uid))
+                                                .put("local_lookup_id", sensor.shortId)
+                                                .put("wear_session_alias", sourceStore.wearAt(sensor.serial, reading.timestamp)?.let { coordinator.store.alias("juggluco", "wear_session", it) } ?: JSONObject.NULL)
                                             row.getJSONObject("metrics").put("glucose", HealthCanonical.metric(reading.value, "mg/dL")).put("device_glucose", HealthCanonical.metric(reading.rawValue, "mg/dL"))
                                             row.getJSONObject("attributes").put("glucose_policy", "stored_auto_and_raw_mgdl_v1").put("display_calibration_applied", false).put("channel_semantics", "stored Auto value and separate raw lane; not an extra conversion or manual time correction")
                                             reading.rate?.let { row.getJSONObject("metrics").put("rate", HealthCanonical.metric(it, "mg/dL/min")) }
@@ -111,6 +118,12 @@ internal object HealthInsightExport {
                         }
                     }
                 }
+                File(folder, "glucose-sources.jsonl").bufferedWriter().use { writer -> sourceCatalog.values.forEach { source ->
+                    writer.line(JSONObject().put("sensor_alias", coordinator.store.alias("juggluco", "sensor", source.serial))
+                        .put("source_uid_alias", coordinator.store.alias("juggluco", "source_uid", source.uid))
+                        .put("local_lookup_id", source.shortId).put("manufacturer", source.manufacturer ?: JSONObject.NULL)
+                        .put("model", source.model ?: JSONObject.NULL).put("health_connect_device_model", source.device.model))
+                } }
                 val partial = states.any { it.optString("status") !in setOf("success", "association_permission") }
                 val manifest = JSONObject().put("schema_version", "0.1.0").put("exported_at_utc", cutoff.toString()).put("cutoff_epoch_ms", cutoff.toEpochMilli())
                     .put("scope", "all_valid_local_records_all_sensors_all_channels_all_cached_samsung_types_and_journal")
@@ -126,6 +139,7 @@ internal object HealthInsightExport {
                 File(folder, "summary.json").writeText(summary.toString(2))
                 File(folder, "summary.md").writeText("血糖 $glucoseCount 条；三星健康 $samsungCount 条；日志 $journalCount 条。\n\n本包包含全部已缓存数据和完整子序列。刷新${if (partial) "存在失败或跳过，请查 manifest.json" else "完成"}。时序共现不能说明因果。\n")
                 File(folder, "README.txt").writeText("JugglucoNG 健康数据 0.1.0\n先读 manifest.json 和 summary.json。逐行读取 glucose.jsonl、samsung-records.jsonl、journal.jsonl；再按 parent_record_id/series_id 加载 series.jsonl，按 relations.jsonl 关联睡眠。UTC epoch 是比较依据，勿按手机时区平移记录。每日汇总保留三星的本地日期语义，不伪造采样时刻。所有数值/完整日志已保留，未映射字段不能猜单位。glucose=Room 存储 Auto 通道，device_glucose=Raw 通道；recorded-display.jsonl 另外保留实际记录的显示值及通道，uncertainty.jsonl 保留可信区间。应用的后处理显示校准不重复套用。保留失败状态和已有缓存不代表全账户覆盖。文件可能含个人健康和用户输入日志，分享由用户操作。\n")
+                File(folder, "README.txt").appendText("\nglucose-sources.jsonl 给出各血糖来源的目录，按 sensor_alias/source_uid_alias 关联；local_lookup_id 可在本机血糖来源页查询。wear_session_alias 仅表示已知的佩戴周期，null 保持未知，不能按当前探头参数猜旧历史归属。\n")
                 for (name in listOf("record.schema.json", "series.schema.json", "field-catalog.json", "capabilities.json")) {
                     context.assets.open("health-insights/$name").use { input -> File(folder, name).outputStream().use { input.copyTo(it) } }
                 }
@@ -154,7 +168,7 @@ internal object HealthInsightExport {
                 }
                 output
             } catch (ex: Exception) { output.delete(); throw ex }
-            finally { folder.deleteRecursively() }
+            finally { sourceStore.close(); folder.deleteRecursively() }
         }
     }
     private fun journalFields(entry: tk.glucodata.data.journal.JournalEntryEntity): JSONObject = JSONObject().apply {

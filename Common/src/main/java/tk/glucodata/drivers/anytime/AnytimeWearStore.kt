@@ -57,6 +57,22 @@ internal object AnytimeWearStore {
     fun hash(raw: String): String = MessageDigest.getInstance("SHA-256").digest(raw.toByteArray())
         .take(6).joinToString("") { "%02x".format(it) }
 
+    /** Read only confirmed clock anchors; never attach old data to a current QR. */
+    fun knownSessions(ctx: Context, id: String): Map<String, Long> {
+        val p = prefs(ctx)
+        val suffix = "_${AnytimeConstants.PREF_TIMELINE_START_AT_PREFIX}$id"
+        val result = mutableMapOf<String, Long>()
+        p.all.forEach { (k, value) ->
+            if (k.startsWith("anytime_archive_") && k.endsWith(suffix) && value is Long && value > 0) {
+                result[k.removePrefix("anytime_archive_").removeSuffix(suffix)] = value
+            }
+        }
+        val current = p.getString(key(id, "id"), null)
+        val start = p.getLong(AnytimeConstants.PREF_TIMELINE_START_AT_PREFIX + id, 0L)
+        if (current != null && start > 0) result[current] = start
+        return result
+    }
+
     /** Archive before clearing any live state; failed commits abort rollover. */
     fun rollover(ctx: Context, id: String, keepNewlyAssignedQr: Boolean): String {
         val p = prefs(ctx)

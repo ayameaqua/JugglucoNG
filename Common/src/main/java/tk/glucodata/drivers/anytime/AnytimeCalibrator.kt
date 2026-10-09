@@ -44,6 +44,13 @@ import tk.glucodata.Log
 class AnytimeCalibrator(
     val k0: Float,
 ) {
+    /** Captured during computation, never recomputed when the UI reads it. */
+    data class Trace(val glucoseId: Int, val k0: Float, val iwNa: Float, val rawTemperatureC: Float,
+        val effectiveTemperatureC: Float, val temperatureMultiplier: Float, val kAuto: Float,
+        val previousFilteredMmol: Float, val unfilteredMmol: Float, val filteredMmol: Float, val seedGlucoseId: Int)
+    @Volatile private var lastTrace: Trace? = null
+    private var seedGlucoseId = -1
+    fun trace(): Trace? = lastTrace
     /** The three fields that carry continuity across records; see [snapshot]/[restoreState]. */
     data class State(
         val tempSmoothPrev: Float,
@@ -159,15 +166,18 @@ class AnytimeCalibrator(
             pendingReset = false
             filteredPrev = Float.NaN
         }
+        if (filteredPrev.isNaN()) seedGlucoseId = id
         lastGlucoseId = id
 
         val base = record.iwNa / kBase
         val mul = tempMultiplier(record.temperatureC)
         val gluRaw = base * mul
         val kAuto = autoSensitivity(id)
-
+        val previous = filteredPrev
         val filtered = applyStepLimiter(gluRaw, kAuto)
         filteredPrev = filtered
+        lastTrace = Trace(id, k0, record.iwNa, record.temperatureC, tempSmoothPrev, mul,
+            kAuto, previous, gluRaw, filtered, seedGlucoseId)
         return filtered
     }
 
@@ -217,6 +227,8 @@ class AnytimeCalibrator(
 
     /** Reset the model state (new session / cleared calibration). */
     fun reset() {
+        lastTrace = null
+        seedGlucoseId = -1
         tempSmoothPrev = Float.NaN
         filteredPrev = Float.NaN
         lastGlucoseId = -1
@@ -233,6 +245,8 @@ class AnytimeCalibrator(
      * [computeNext] call continues the limiter/smoother from where it left off.
      */
     fun restoreState(state: State) {
+        lastTrace = null // Continuity state cannot reconstruct the previous sample's inputs.
+        seedGlucoseId = -1 // Legacy persisted states do not claim a complete input prefix.
         tempSmoothPrev = state.tempSmoothPrev
         filteredPrev = state.filteredPrev
         lastGlucoseId = state.lastGlucoseId

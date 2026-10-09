@@ -765,6 +765,7 @@ public class Natives {
         /** ManagedSensorUiFamily.nativeCode; 0 clears. Travels in info.dat, so a Clone receiver sees it. */
         public static native void setSensorManagedFamily(String sensorId, int code);
         public static native int getSensorManagedFamily(long dataptr);
+        public static native int getSensorManagedFamilyFromSensorptr(long sensorptr);
 
         public static native boolean hasSensorStreamCapacity(String sensorId, int minimumRecords);
 
@@ -1238,6 +1239,9 @@ public class Natives {
         public static native boolean gethealthConnect();
 
         public static native void healthConnectReset();
+        // Export-only operations: do not change sensor lifecycle or glucose data.
+        public static native void healthConnectResetSensor(long sensorptr);
+        public static native String[] healthConnectSensorNames();
 
         public static native boolean setIOB(boolean val);
 

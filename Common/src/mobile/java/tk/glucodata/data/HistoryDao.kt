@@ -177,6 +177,9 @@ interface HistoryDao {
     @Query("SELECT DISTINCT sensorSerial FROM history_readings")
     suspend fun getAllSensorSerials(): List<String>
 
+    @Query("SELECT * FROM history_readings WHERE sensorSerial=:serial AND timestamp<:before ORDER BY timestamp DESC LIMIT :limit")
+    suspend fun healthSourcePage(serial: String, before: Long, limit: Int): List<HistoryReading>
+
     @Query(
         """
         SELECT * FROM history_readings

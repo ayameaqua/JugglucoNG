@@ -31,8 +31,6 @@ import androidx.health.connect.client.permission.HealthPermission.Companion.getW
 import androidx.health.connect.client.records.ExerciseSessionRecord
 import androidx.health.connect.client.records.BloodGlucoseRecord
 import androidx.health.connect.client.records.StepsRecord
-import androidx.health.connect.client.records.metadata.Device
-import androidx.health.connect.client.records.metadata.Device.Companion.TYPE_UNKNOWN
 import androidx.health.connect.client.request.ReadRecordsRequest
 import androidx.health.connect.client.time.TimeRangeFilter
 import kotlinx.coroutines.CoroutineScope
@@ -41,6 +39,7 @@ import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.withContext
 import tk.glucodata.data.journal.JournalEntryInput
 import tk.glucodata.data.journal.JournalEntrySource
@@ -54,6 +53,7 @@ import kotlin.math.min
 
 class HealthConnection(private val client: HealthConnectClient) {
     private val recordVersions by lazy { HealthConnectRecordVersions(checkNotNull(Applic.app)) }
+    private val sources by lazy { HealthConnectSources(checkNotNull(Applic.app)) }
     private val exportLock = Any()
     private val pendingExports = LinkedHashMap<Long, String>()
     private var exportWorkerActive = false
@@ -93,6 +93,8 @@ class HealthConnection(private val client: HealthConnectClient) {
                 } ?: return@launch
                 try {
                     exportOneSensor(request.first, request.second)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
                 } catch (th: Throwable) {
                     // One sensor failing must not strand a later trigger in the
                     // queue. The cursor only advances after successful inserts.
@@ -106,35 +108,57 @@ class HealthConnection(private val client: HealthConnectClient) {
     private suspend fun exportOneSensor(sensorptr: Long, sensorName: String) {
         Log.i(LOG_ID, "writeAll 0x${sensorptr.toHexString()} $sensorName")
         if (!hasPermission) {
-            checkPermissionsAndRun(MainActivity.thisone)
+            // Background writes do not repeatedly launch permission UI for
+            // every queued sensor. The settings/init flow requests it once.
+            checkPermissionsAndRun(null)
             if (!hasPermission) {
                 if (doLog) Log.i(LOG_ID, "No permission")
                 return
             }
         }
 
-        val meta = androidx.health.connect.client.records.metadata.Metadata.unknownRecordingMethod(
-            device = Device(TYPE_UNKNOWN, "Libre", sensorName)
-        )
+        val source = HealthConnectSources.resolve(checkNotNull(Applic.app), sources, sensorName, sensorptr)
+        val meta = androidx.health.connect.client.records.metadata.Metadata.unknownRecordingMethod(device = source.device)
+        // One metadata replay also recovers previously suppressed sensors. This
+        // only rewinds the export cursor; it never rewrites local glucose data.
+        if (sources.needsReplay(source)) Natives.healthConnectResetSensor(sensorptr)
         while (true) {
+            if (!Natives.gethealthConnect()) return
             val snapshot = Natives.healthConnectfromSensorptr(sensorptr)
             val end = ((snapshot ushr 16) and 0xFFFF).toInt()
             val start = (snapshot and 0xFFFF).toInt()
-            if (start >= end) return
+            if (start >= end) { sources.markPublished(source); return }
             val take = min(end - start, 500)
             // Materialize a bounded list before the suspending insert. Native
             // indices include empty minute slots, not just valid records.
-            val records = recordVersions.batch { versionOf ->
+            val records = recordVersions.batch(source.fingerprint) { versionOf ->
                 GlucoseList(meta, sensorptr, start, take, sensorName) { id, mgdl -> versionOf(id, mgdl) }
             }
             if (records.isNotEmpty()) {
-                client.insertRecords(records)
+                sources.index(source, records, uploaded = false)
+                val inserted = client.insertRecords(records)
+                sources.index(source, records, uploaded = true, healthIds = inserted.recordIdsList)
             }
             // A concurrent backfill (including one inside this chunk) invalidates
             // the snapshot. Re-read from the preserved cursor; stable record IDs
             // make replay safe. Failed inserts never reach this acknowledgement.
             if (!Natives.healthConnectWritten(sensorptr, snapshot, start + take)) {
                 if (doLog) Log.i(LOG_ID, "Native history changed during Health Connect insert; replaying")
+            }
+        }
+    }
+
+    private fun enqueueStoredSensors(replayAll: Boolean = false) {
+        scope.launch {
+            if (!Natives.gethealthConnect()) return@launch
+            if (replayAll) Natives.healthConnectReset()
+            // Retain existing clientRecordId aliases even when native uses a
+            // short name for lookup. Finished sensors with poll history count too.
+            val aliases = recordVersions.sensorAliases()
+            for (nativeName in Natives.healthConnectSensorNames().orEmpty()) {
+                val alias = aliases.firstOrNull { SensorIdentity.matches(it, nativeName) }
+                    ?: SensorIdentity.resolveAppSensorId(nativeName) ?: nativeName
+                writeAllIns(Natives.str2sensorptr(nativeName), alias)
             }
         }
     }
@@ -248,7 +272,7 @@ companion object {
                 getReadPermission(ExerciseSessionRecord::class),
                 getReadPermission(StepsRecord::class)
             )
-    var hasPermission = false
+    @Volatile var hasPermission = false
     private const val LOG_ID = "HealthConnection"
    @Volatile
         private var instance:HealthConnection? = null
@@ -268,7 +292,7 @@ companion object {
 	       GlobalScope.launch {
 		  susinit(context)
 		}
-       }
+       } else instance?.enqueueStoredSensors()
 
    }
 private suspend   fun susinit(context: MainActivity): Int {
@@ -287,6 +311,7 @@ private suspend   fun susinit(context: MainActivity): Int {
                        instance = health
                        Log.i(LOG_ID, "after getOrCreate")
                        health.checkPermissionsAndRun(context)
+                       health.enqueueStoredSensors()
                        Log.i(LOG_ID, "after checkPermissionsAndRun")
 		       MainActivity.tryHealth=0;
                    }
@@ -314,6 +339,7 @@ private suspend   fun susinit(context: MainActivity): Int {
 fun writeAll(sensorptr:Long,sensorname:String) {
 	instance?.writeAllIns(sensorptr,sensorname);
     }
+    fun syncStoredSensors(replayAll: Boolean = false) { instance?.enqueueStoredSensors(replayAll) }
     fun importActivity(daysBack: Int = 14) {
         instance?.importActivityIns(daysBack) ?: MainActivity.thisone?.let { context ->
             GlobalScope.launch {

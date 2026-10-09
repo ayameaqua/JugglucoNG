@@ -519,6 +519,12 @@ fromjava(healthConnectfromSensorptr)(JNIEnv *env, jclass cl, jlong sensorptr) {
   return static_cast<jlong>(healthconnect::snapshot(
       &info->healthconnectiter, info->pollstart, info->pollcount));
 }
+extern "C" JNIEXPORT void JNICALL fromjava(healthConnectResetSensor)(
+    JNIEnv *env, jclass cl, jlong sensorptr) {
+  if (!sensorptr) return;
+  auto *info = reinterpret_cast<SensorGlucoseData *>(sensorptr)->getinfo();
+  healthconnect::reset(&info->healthconnectiter, info->pollstart);
+}
 extern "C" JNIEXPORT jboolean JNICALL fromjava(healthConnectWritten)(
     JNIEnv *env, jclass cl, jlong sensorptr, jlong snapshot, jint pos) {
   if (!sensorptr) return JNI_FALSE;
@@ -1825,6 +1831,12 @@ extern "C" JNIEXPORT jint JNICALL fromjava(getSensorManagedFamily)(
   const auto *info = hist->getinfo();
   return info ? static_cast<jint>(info->managedFamily) : 0;
 }
+extern "C" JNIEXPORT jint JNICALL fromjava(getSensorManagedFamilyFromSensorptr)(
+    JNIEnv *env, jclass cl, jlong sensorptr) {
+  if (!sensorptr) return 0;
+  const auto *info = reinterpret_cast<const SensorGlucoseData *>(sensorptr)->getinfo();
+  return info ? static_cast<jint>(info->managedFamily) : 0;
+}
 
 extern "C" JNIEXPORT jboolean JNICALL fromjava(hasSensorStreamCapacity)(
     JNIEnv *env, jclass cl, jstring sensorId, jint minimumRecords) {
@@ -2304,6 +2316,15 @@ fromjava(finishfromSensorptr)(JNIEnv *env, jclass cl, jlong sensorptr) {
   finishsensor(sens, sensorindex);
 }
 #endif
+extern "C" JNIEXPORT jobjectArray JNICALL fromjava(healthConnectSensorNames)(
+    JNIEnv *env, jclass cl) {
+  std::vector<std::string> names;
+  if (sensors) sensors->onallsensors([&](SensorGlucoseData *hist) {
+    if (hist->getinfo()->pollcount > hist->getinfo()->pollstart)
+      names.emplace_back(hist->shortsensorname()->data());
+  });
+  return sensorNamesToJavaArray(env, names);
+}
 #ifdef LIBRE3
 extern "C" JNIEXPORT jobjectArray JNICALL fromjava(activeSensors)(JNIEnv *env,
                                                                   jclass cl) {

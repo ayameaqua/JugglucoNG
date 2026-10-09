@@ -960,13 +960,7 @@ public class SensorBluetooth {
                 if (removedSerial != null && !removedSerial.equals(str)) {
                     removePersistedManagedSensor(removedSerial);
                 }
-                for (; i < gattcallbacks.size(); ++i) {
-                    gatt = gattcallbacks.get(i);
-                    gatt.stopHealth = false;
-                }
                 return;
-            } else {
-                gatt.stopHealth = false;
             }
         }
         {
@@ -1547,7 +1541,6 @@ public class SensorBluetooth {
                     if (matched == 0) {
                         rem.add(i);
                     } else {
-                        gatt.stopHealth = false;
                         heb += matched;
                     }
                 }

@@ -20,7 +20,10 @@
         "record_alias": {"type": "string", "minLength": 1},
         "device_alias": {"type": ["string", "null"]},
         "sensor_alias": {"type": ["string", "null"]},
-        "method": {"type": ["string", "null"]}
+        "method": {"type": ["string", "null"]},
+        "source_uid_alias": {"type": ["string", "null"]},
+        "local_lookup_id": {"type": ["string", "null"]},
+        "wear_session_alias": {"type": ["string", "null"]}
       }
     },
     "metrics": {

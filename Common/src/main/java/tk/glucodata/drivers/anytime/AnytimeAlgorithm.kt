@@ -183,6 +183,8 @@ object AnytimeAlgorithm {
         /** Official native calibration status; -1 when the native path did not report it. */
         val historyCompletePrefix: Boolean = false,
         val calibrationStatus: Int = AnytimeCalibrationPolicy.CALIBRATION_STATUS_UNKNOWN,
+        val modelTrace: AnytimeCalibrator.Trace? = null,
+        val modelInputPath: String? = null,
     ) {
         val mgdl: Float get() = mgdlTimes10 / 10f
     }
@@ -290,20 +292,19 @@ object AnytimeAlgorithm {
         persistentSensorId: String,
         rawMgdl: Float,
     ): Result {
-        // CT4 has no factory QR, so k0 is usually 0. Fall back to the MK4
-        // reference K0 (1.13); 0 would divide by zero in AnytimeCalibrator.
+        // Valid factory/manual coefficients override the reference default.
         val effectiveK0 = if (k0 > 0f) k0 else AnytimeConstants.CT4_DEFAULT_K0
         val calibrator = calibratorFor(persistentSensorId, effectiveK0)
-        return modelResult(record, calibrator.computeNext(record), rawMgdl)
+        return modelResult(record, calibrator.computeNext(record), rawMgdl, calibrator.trace()).copy(modelInputPath = "live")
     }
 
-    private fun modelResult(record: AnytimeRawRecord, filteredMmol: Float, rawMgdl: Float): Result {
+    private fun modelResult(record: AnytimeRawRecord, filteredMmol: Float, rawMgdl: Float, trace: AnytimeCalibrator.Trace? = null): Result {
         val mmol = filteredMmol.coerceAtLeast(AnytimeConstants.ALGO_MMOL_FLOOR.toFloat())
         return Result(glucoseId = record.glucoseId, mmol = mmol,
             mgdlTimes10 = (mmol * 180f + .5f).toInt().coerceIn(
                 AnytimeConstants.ALGO_MGDL_MIN_TIMES10, AnytimeConstants.ALGO_MGDL_MAX_TIMES10),
             ibNa = record.ibNa, iwNa = record.iwNa, temperatureC = record.temperatureC,
-            trend = 6, errorCode = 0, warnCode = 0, source = Source.MODEL, rawMgdl = rawMgdl)
+            trend = 6, errorCode = 0, warnCode = 0, source = Source.MODEL, rawMgdl = rawMgdl, modelTrace = trace)
     }
 
     private class HistoryModel(val k0: Float) {
@@ -326,12 +327,12 @@ object AnytimeAlgorithm {
                 for (item in prefix.drop(pool.inputs.size)) {
                     val raw = computeLinear(item, qr?.takeIf { it.hasAlgorithmCalibration }?.k ?: 0f,
                         qr?.takeIf { it.hasAlgorithmCalibration }?.r ?: 0f, family, qr?.voltageFlag ?: 0).rawMgdl
-                    pool.outputs[item.glucoseId] = modelResult(item, pool.model.computeNext(item), raw)
+                    pool.outputs[item.glucoseId] = modelResult(item, pool.model.computeNext(item), raw, pool.model.trace())
                 }
                 pool.inputs = prefix
             }
             val complete = prefix.firstOrNull()?.glucoseId == 0 && prefix.zipWithNext().all { (a, b) -> b.glucoseId == a.glucoseId + 1 }
-            return pool.outputs.getValue(record.glucoseId).copy(historyCompletePrefix = complete)
+            return pool.outputs.getValue(record.glucoseId).copy(historyCompletePrefix = complete, modelInputPath = if (complete) "history_complete" else "history_partial")
         }
     }
 
@@ -342,7 +343,7 @@ object AnytimeAlgorithm {
         return ordered.map { record ->
             val raw = computeLinear(record, qr?.takeIf { it.hasAlgorithmCalibration }?.k ?: 0f,
                 qr?.takeIf { it.hasAlgorithmCalibration }?.r ?: 0f, family, qr?.voltageFlag ?: 0).rawMgdl
-            modelResult(record, model.computeNext(record), raw).copy(historyCompletePrefix = true)
+            modelResult(record, model.computeNext(record), raw, model.trace()).copy(historyCompletePrefix = true, modelInputPath = "history_complete")
         }
     }
 

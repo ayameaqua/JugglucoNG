@@ -66,6 +66,16 @@ class AnytimeWearPersistenceTest {
         assertEquals("a61061B", AnytimeRegistry.loadQrContent(context, id))
         assertEquals(7000, AnytimeRegistry.loadLastGlucoseId(context, id))
     }
+    @Test fun sourceCatalogReadsCurrentAndArchivedWearAnchorsWithoutChangingProbeState() {
+        assertTrue(AnytimeWearStore.knownSessions(context, id).isEmpty())
+        previous(); val old = AnytimeWearStore.session(context, id)
+        val next = AnytimeWearStore.rollover(context, id, false)
+        AnytimeRegistry.saveTimelineStartAt(context, id, 1_790_000_000_000L)
+        val prefs = context.getSharedPreferences("tk.glucodata_preferences", 0)
+        val before = prefs.all.toMap()
+        assertEquals(mapOf(old to 1_780_000_000_000L, next to 1_790_000_000_000L), AnytimeWearStore.knownSessions(context, id))
+        assertEquals(before, prefs.all.toMap())
+    }
     @Test fun fingerprintCalibrationWindowsAreDisjointAndKeepPreviousWearAnchors() {
         WearCalibrationBoundary.begin(context, id, 2000L)
         WearCalibrationBoundary.begin(context, id, 4000L)
