@@ -53,9 +53,11 @@ class HealthConnectNativeRecordTests {
         val jni = flattened("Common/src/main/cpp/g.cpp")
         val store = jni.substring(jni.indexOf("static bool storeGlucoseStreamSample("))
             .substringBefore("static bool addGlucoseStreamInternal(")
-        val gap = store.indexOf("fillsPollGap")
-        val invalidate = store.indexOf("healthconnect::gapFilled(&info->healthconnectiter")
-        assertTrue("every new gap fill must invalidate an in-flight snapshot", gap >= 0 && invalidate > gap)
+        val previous = store.indexOf("previousGlucose = pollsbuf ? pollsbuf[lifeCount].g : 0")
+        val invalidate = store.indexOf("healthconnect::glucoseWritten(&info->healthconnectiter")
+        assertTrue("both gap fills and changed values must invalidate an in-flight snapshot",
+            previous >= 0 && invalidate > previous)
+        assertTrue(store.contains("previousGlucose, mgVal"))
     }
 
     @Test

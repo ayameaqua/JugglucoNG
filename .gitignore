@@ -51,7 +51,7 @@ lint/generated/
 # Crash logs
 hs_err_pid*
 
-.kotlin/errors
+.kotlin/
 
 # --- Misc ---
 out/

@@ -433,6 +433,7 @@ class AnytimeBleManager(
     private val historyCaughtUpCooldown = AnytimeHistoryCaughtUpCooldown(HISTORY_CAUGHT_UP_COOLDOWN_MS)
     private val historyRoomImportBuffer = AnytimeHistoryRoomImportBuffer()
     @Volatile private var manualHistoryRewrite: AnytimeManualHistoryRewrite? = null
+    @Volatile private var rawLiveObservedThisConnection = false
 
     // If a long one-by-one history pull is interrupted by BLE loss, keep the
     // range and resume it after the next successful handshake/reset instead of
@@ -1152,6 +1153,7 @@ class AnytimeBleManager(
         stopBeforeId: Int = Int.MAX_VALUE,
     ) {
         if (phase != Phase.STREAMING) return
+        if (manualHistoryRewrite?.active == true && !rawLiveObservedThisConnection) return
         if (!hasUsableHistoryTimeline()) {
             Log.i(TAG, "Deferring history backfill ($reason) until the first live timeline anchor")
             return
@@ -1350,10 +1352,10 @@ class AnytimeBleManager(
         val intervalMs = profile.readingIntervalMinutes * 60_000L
         when (wearPolicy.observe(liveId, previousMaxId, glucoseTimelineStartAtMs, now, intervalMs)) {
             AnytimeWearPolicy.Decision.ACCEPT -> {
-                if (manualHistoryRewrite?.active == true) maybeResumeInterruptedBackfill()
                 return true
             }
             AnytimeWearPolicy.Decision.QUARANTINE -> {
+                rawLiveObservedThisConnection = false
                 // Do not read a potentially new probe into the old wear's clock
                 // while its live rollback is still being confirmed.
                 stopHistoryBackfill(rememberForReconnect = true)
@@ -1590,6 +1592,7 @@ class AnytimeBleManager(
         if (from < 0) return false
         if (historyBackfillActive || phase != Phase.STREAMING) return false
         val reason = interruptedBackfillReason.ifBlank { "interrupted" }
+        if (AnytimeManualHistoryRewrite.requiresFreshRead(reason) && !rawLiveObservedThisConnection) return false
         if (AnytimeManualHistoryRewrite.requiresFreshRead(reason) && validManualHistoryRewrite() == null) {
             manualHistoryRewrite?.cancel("历史重算已停止：探头、二维码或时间轴发生变化，请重新确认历史操作")
             persistManualHistoryRewrite()
@@ -2665,6 +2668,7 @@ class AnytimeBleManager(
                 serviceDiscoveryRetryCount = 0
                 serviceDiscoveryRequestInFlight = false
                 phase = Phase.DISCOVERING
+                rawLiveObservedThisConnection = false
                 // A new GATT session clears any "history is unhealthy" state from
                 // the previous one. Nothing about 0x37 is disabled across sessions.
                 ct5HistoryHealth.onGattSessionStarted()
@@ -3851,6 +3855,8 @@ class AnytimeBleManager(
         val anchorMs = if (push && anchorId >= 0) now else 0L
         if (push && anchorId >= 0) {
             if (!clearStaleRuntimeStateBeforeLiveRecord(anchorId)) return
+            rawLiveObservedThisConnection = true
+            if (manualHistoryRewrite?.active == true) maybeResumeInterruptedBackfill()
         }
         if (anchorId >= 0) {
             clearCaughtUpCooldownIfNewerData(anchorId)
@@ -5735,7 +5741,8 @@ class AnytimeBleManager(
     private fun startManualHistoryRewrite() {
         val ctx = Applic.app ?: return
         val id = SerialNumber ?: return
-        if (phase != Phase.STREAMING || !hasUsableHistoryTimeline() || wearPolicy.hasPendingRollover()) return
+        if (phase != Phase.STREAMING || !hasUsableHistoryTimeline() ||
+            !rawLiveObservedThisConnection || wearPolicy.hasPendingRollover()) return
         flushPendingHistoryRoomImports()
         stopHistoryBackfill()
         interruptedBackfillFromId = -1
@@ -5756,7 +5763,8 @@ class AnytimeBleManager(
             return false
         }
         if (supportsManualHistoryRecompute()) {
-            if (!hasUsableHistoryTimeline() || wearPolicy.hasPendingRollover() || highestLiveIdForWear < 0) return false
+            if (!hasUsableHistoryTimeline() || !rawLiveObservedThisConnection ||
+                wearPolicy.hasPendingRollover() || highestLiveIdForWear < 0) return false
             handler.post {
                 try { startManualHistoryRewrite() }
                 catch (ex: Exception) { Log.stack(TAG, "manual history recompute could not start", ex) }
