@@ -53,6 +53,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.min
 
 class HealthConnection(private val client: HealthConnectClient) {
+    private val recordVersions by lazy { HealthConnectRecordVersions(checkNotNull(Applic.app)) }
     private val exportLock = Any()
     private val pendingExports = LinkedHashMap<Long, String>()
     private var exportWorkerActive = false
@@ -123,7 +124,9 @@ class HealthConnection(private val client: HealthConnectClient) {
             val take = min(end - start, 500)
             // Materialize a bounded list before the suspending insert. Native
             // indices include empty minute slots, not just valid records.
-            val records = GlucoseList(meta, sensorptr, start, take, sensorName)
+            val records = recordVersions.batch { versionOf ->
+                GlucoseList(meta, sensorptr, start, take, sensorName) { id, mgdl -> versionOf(id, mgdl) }
+            }
             if (records.isNotEmpty()) {
                 client.insertRecords(records)
             }

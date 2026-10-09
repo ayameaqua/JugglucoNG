@@ -79,6 +79,7 @@ internal object AnytimeWearStore {
         e.remove("anytime_wear_live_ids_$id")
         e.remove("anytime_wear_model_k0_$id")
         e.remove("anytime_wear_backfill_$id")
+        e.remove("anytime_manual_history_$id")
         if (keepNewlyAssignedQr) e.putString(key(id, "qr_session"), next)
         else {
             e.remove(key(id, "qr_session"))

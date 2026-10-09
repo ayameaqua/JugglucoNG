@@ -3130,4 +3130,6 @@ Pressing OK will generate a connection on this phone and display a QR code that 
     <string name="clone_network_summary">Servers and local discovery</string>
     <string name="clone_connections_empty">No paired devices yet.</string>
     <string name="clone_background_desc">Uses more battery</string>
+    <string name="anytime_history_recompute_warning">Re-read this probe’s history up to the current reading and recompute it using the current parameters, including defaults if no calibration QR is available. Valid readings replace existing values and queue revisions for enabled uploads. Timestamps and earlier wear sessions stay unchanged. Missing inputs, warm-up and invalid readings retain existing values. This can take several minutes; live readings continue. Verify the probe QR before confirming.</string>
+    <string name="anytime_history_not_ready">History could not start. Wait for a stable connection and a confirmed current-probe live reading, then try again.</string>
 </resources>

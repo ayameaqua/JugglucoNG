@@ -1472,13 +1472,15 @@ static bool storeGlucoseStreamSample(SensorGlucoseData *hist, const char *sensor
   int preservedRaw = 0;
   uint16_t preservedTemp = 0;
   const ScanData *pollsbuf = hist->getPollsData();
-  const bool fillsPollGap = pollsbuf && pollsbuf[lifeCount].g <= 0;
+  const int32_t previousGlucose = pollsbuf ? pollsbuf[lifeCount].g : 0;
+  const bool glucoseChanged = previousGlucose != mgVal;
   if (hist->hasStreamID(lifeCount)) {
     const RawData *rawbuf = hist->getRawPollsData();
     if (rawbuf)
       preservedRaw = rawbuf[lifeCount].raw;
     preservedTemp = hist->getTempForPoll(lifeCount);
   }
+  const int previousRaw = preservedRaw;
   if (overwriteRaw && rawGlucose > 0.0f)
     preservedRaw = compactRawMgdl(rawGlucose);
   if (overwriteTemp && temperatureC > 0.0f)
@@ -1496,17 +1498,19 @@ static bool storeGlucoseStreamSample(SensorGlucoseData *hist, const char *sensor
   if (!stored)
     return false;
 
-  if (fillsPollGap && lifeCount <= UINT16_MAX && info->nightiter > lifeCount) {
+  if ((glucoseChanged || previousRaw != preservedRaw) &&
+      lifeCount <= UINT16_MAX && info->nightiter > lifeCount) {
     if (!quiet) {
-      LOGGER("%s: poll %d backfilled behind Nightscout cursor %u; rewinding\n",
+      LOGGER("%s: poll %d inserted/revised behind Nightscout cursor %u; rewinding\n",
              sensorId, lifeCount, (unsigned)info->nightiter);
     }
     __atomic_store_n(&info->nightiter, (uint16_t)lifeCount, __ATOMIC_RELAXED);
   }
-  if (fillsPollGap && lifeCount <= UINT16_MAX) {
-    // Invalidate even if the gap is inside the current export chunk, where
+  if (lifeCount <= UINT16_MAX) {
+    // Invalidate even if the revision is inside the current export chunk, where
     // rewinding the persisted cursor alone would not detect the race.
-    healthconnect::gapFilled(&info->healthconnectiter, uint16_t(lifeCount));
+    healthconnect::glucoseWritten(&info->healthconnectiter, uint16_t(lifeCount),
+                                 previousGlucose, mgVal);
   }
   if (backup) {
     if (rewindFrom) {

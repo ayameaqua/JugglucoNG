@@ -72,6 +72,8 @@ interface AnytimeDriver : ManagedBluetoothSensorDriver, ManagedSensorMaintenance
      * already running.
      */
     fun requestHistoryBackfill(): Boolean
+    fun supportsManualHistoryRecompute(): Boolean = false
+    fun isManualHistoryRecomputeActive(): Boolean = false
 
     fun getCurrentSnapshot(maxAgeMillis: Long): AnytimeCurrentSnapshot? = null
 

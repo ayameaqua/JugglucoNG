@@ -157,7 +157,7 @@ internal class AnytimeHistoryRoomImportBuffer {
     private val seenPriorities = HashMap<Int, Int>()
 
     @Synchronized
-    fun queue(sampleMs: Long, result: AnytimeAlgorithm.Result): Boolean {
+    fun queue(sampleMs: Long, result: AnytimeAlgorithm.Result, replaceExisting: Boolean = false): Boolean {
         val raw = if (result.rawMgdl.isNaN()) result.mgdl else result.rawMgdl
         val priority = sourcePriority(result.source) + if (result.source == AnytimeAlgorithm.Source.MODEL && result.historyCompletePrefix) 1 else 0
         return queueInternal(
@@ -168,6 +168,7 @@ internal class AnytimeHistoryRoomImportBuffer {
             glucoseMgdl = result.mgdl,
             rawMgdl = raw,
             temperatureC = result.temperatureC,
+            replaceExisting = replaceExisting,
         )
     }
 
@@ -194,11 +195,12 @@ internal class AnytimeHistoryRoomImportBuffer {
         glucoseMgdl: Float,
         rawMgdl: Float,
         temperatureC: Float,
+        replaceExisting: Boolean = false,
     ): Boolean {
         val seenPriority = seenPriorities[glucoseId]
         val pendingPriority = pending[glucoseId]?.priority
         val bestKnownPriority = maxOf(seenPriority ?: NO_PRIORITY, pendingPriority ?: NO_PRIORITY)
-        if (bestKnownPriority >= priority) return false
+        if (bestKnownPriority >= priority && !replaceExisting) return false
 
         pending[glucoseId] = AnytimePendingHistoryRoomImport(
             glucoseId = glucoseId,

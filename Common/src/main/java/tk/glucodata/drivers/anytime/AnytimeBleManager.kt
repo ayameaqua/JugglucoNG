@@ -432,6 +432,7 @@ class AnytimeBleManager(
     @Volatile private var historyBackfillStartedAfterGlucoseId: Int = -1
     private val historyCaughtUpCooldown = AnytimeHistoryCaughtUpCooldown(HISTORY_CAUGHT_UP_COOLDOWN_MS)
     private val historyRoomImportBuffer = AnytimeHistoryRoomImportBuffer()
+    @Volatile private var manualHistoryRewrite: AnytimeManualHistoryRewrite? = null
 
     // If a long one-by-one history pull is interrupted by BLE loss, keep the
     // range and resume it after the next successful handshake/reset instead of
@@ -536,6 +537,8 @@ class AnytimeBleManager(
             )
         }
         val wearPrefs = context.getSharedPreferences("tk.glucodata_preferences", Context.MODE_PRIVATE)
+        manualHistoryRewrite = wearPrefs.getString("anytime_manual_history_$id", null)
+            ?.let(AnytimeManualHistoryRewrite::restore)
         liveModelIds.clear()
         liveModelIds.addAll(wearPrefs.getStringSet("anytime_wear_live_ids_$id", emptySet()).orEmpty().mapNotNull { it.toIntOrNull() })
         highestLiveIdForWear = liveModelIds.maxOrNull() ?: persistedLastGlucoseId
@@ -544,6 +547,13 @@ class AnytimeBleManager(
             interruptedBackfillReason = backfill[0]
             interruptedBackfillFromId = backfill[1].toIntOrNull() ?: -1
             interruptedBackfillStopBeforeId = backfill[2].toIntOrNull() ?: Int.MAX_VALUE
+        }
+        if (manualHistoryRewrite?.active == true) {
+            // Re-read from zero after process death: raw-cache and preference writes
+            // are separate, so the persisted pull cursor alone cannot prove a prefix.
+            interruptedBackfillReason = AnytimeManualHistoryRewrite.REASON
+            interruptedBackfillFromId = 0
+            interruptedBackfillStopBeforeId = manualHistoryRewrite!!.stopBeforeId
         }
         val rawHistory = AnytimeRegistry.loadRawHistory(context, id)
         val rawMaxId = rawHistory.maxOfOrNull { it.glucoseId } ?: -1
@@ -1084,6 +1094,7 @@ class AnytimeBleManager(
 
     private fun nextBackfillIdSkippingCached(fromId: Int): Int {
         var id = fromId.coerceAtLeast(0)
+        if (AnytimeManualHistoryRewrite.requiresFreshRead(historyBackfillReason)) return id
         if (isCt5()) {
             synchronized(ct5ResolvedHistoryIds) {
                 synchronized(ct5SkippedHistoryIds) {
@@ -1338,8 +1349,16 @@ class AnytimeBleManager(
         val now = System.currentTimeMillis()
         val intervalMs = profile.readingIntervalMinutes * 60_000L
         when (wearPolicy.observe(liveId, previousMaxId, glucoseTimelineStartAtMs, now, intervalMs)) {
-            AnytimeWearPolicy.Decision.ACCEPT -> return true
-            AnytimeWearPolicy.Decision.QUARANTINE -> return false
+            AnytimeWearPolicy.Decision.ACCEPT -> {
+                if (manualHistoryRewrite?.active == true) maybeResumeInterruptedBackfill()
+                return true
+            }
+            AnytimeWearPolicy.Decision.QUARANTINE -> {
+                // Do not read a potentially new probe into the old wear's clock
+                // while its live rollback is still being confirmed.
+                stopHistoryBackfill(rememberForReconnect = true)
+                return false
+            }
             AnytimeWearPolicy.Decision.NEW_WEAR -> Unit
         }
         // Drain old queued imports under their original clock before archiving.
@@ -1351,6 +1370,7 @@ class AnytimeBleManager(
             AnytimeWearStore.qrAt(ctx, id) >= newStart - 5 * 60_000L
         try { AnytimeWearStore.rollover(ctx, id, keepQr); tk.glucodata.WearCalibrationBoundary.begin(ctx, id, newStart) }
         catch (t: Exception) { Log.stack(TAG, "wear archive failed; sample quarantined", t); return false }
+        manualHistoryRewrite = null
         if (!keepQr) { qr = null; voltageFlag = 0; pendingKrPush = false }
         AnytimeAlgorithm.clearCalibratorState(id)
         AnytimeAlgorithm.clearNativePortState(id)
@@ -1481,6 +1501,7 @@ class AnytimeBleManager(
         }
     }
 
+    @Synchronized
     private fun finishHistoryBackfill() {
         val completedReason = historyBackfillReason
         stopHistoryBackfill()
@@ -1511,18 +1532,33 @@ class AnytimeBleManager(
 
         if (familyEntry.family == AnytimeConstants.Family.CT4) {
             val raw = synchronized(rawAlgorithmWindow) { rawAlgorithmWindow.values.toList() }
-            for (result in AnytimeAlgorithm.replayCt4History(raw, qr, familyEntry)) {
-                if (result.glucoseId in liveModelIds) continue
+                .let { records -> manualHistoryRewrite?.takeIf { it.active }?.let { task ->
+                    records.filter { it.glucoseId < task.stopBeforeId }
+                } ?: records }
+            val replay = if (manualHistoryRewrite?.active == true)
+                AnytimeAlgorithm.replayCt4AvailableHistory(raw, qr, familyEntry).values
+            else AnytimeAlgorithm.replayCt4History(raw, qr, familyEntry)
+            for (result in replay) {
+                val rewrite = validManualHistoryRewrite()
+                if (rewrite != null) {
+                    if (!rewrite.canReplace(result.glucoseId, result.historyCompletePrefix)) continue
+                } else if (result.glucoseId in liveModelIds) continue
                 val sampleMs = anytimeTimelineSampleMs(glucoseTimelineStartAtMs, result.glucoseId,
                     profile.readingIntervalMinutes * 60_000L, 0L)
                 commitReading(result, sampleMs, Applic.app, live = false, history = true)
             }
             flushPendingHistoryRoomImports()
         }
+        if (AnytimeManualHistoryRewrite.requiresFreshRead(completedReason)) {
+            manualHistoryRewrite?.finish()
+            persistManualHistoryRewrite()
+            UiRefreshBus.requestStatusRefresh()
+        }
         persistBackfillCursor(completed = true)
         maybeStartPendingFreshOlderBackfill()
     }
     private fun persistBackfillCursor(completed: Boolean = false) {
+        persistManualHistoryRewrite()
         val ctx = Applic.app ?: return
         val id = SerialNumber ?: return
         val e = ctx.getSharedPreferences("tk.glucodata_preferences", Context.MODE_PRIVATE).edit()
@@ -1549,10 +1585,18 @@ class AnytimeBleManager(
     }
 
     private fun maybeResumeInterruptedBackfill(): Boolean {
+        if (wearPolicy.hasPendingRollover()) return false
         val from = interruptedBackfillFromId
         if (from < 0) return false
         if (historyBackfillActive || phase != Phase.STREAMING) return false
         val reason = interruptedBackfillReason.ifBlank { "interrupted" }
+        if (AnytimeManualHistoryRewrite.requiresFreshRead(reason) && validManualHistoryRewrite() == null) {
+            manualHistoryRewrite?.cancel("历史重算已停止：探头、二维码或时间轴发生变化，请重新确认历史操作")
+            persistManualHistoryRewrite()
+            interruptedBackfillFromId = -1
+            persistBackfillCursor(completed = true)
+            return false
+        }
         val stopBefore = interruptedBackfillStopBeforeId
         interruptedBackfillReason = ""
         interruptedBackfillFromId = -1
@@ -3764,6 +3808,7 @@ class AnytimeBleManager(
         val intervalMs = profile.readingIntervalMinutes * 60L * 1000L
         // A response from a request made before rollover can still arrive. It
         // cannot import ids beyond the current wear's proven live clock.
+        if (!push && wearPolicy.hasPendingRollover()) return
         val records = if (!push && highestLiveIdForWear >= 0) incomingRecords.filter { it.glucoseId <= highestLiveIdForWear + 1 } else incomingRecords
         if (!push && incomingRecords.isNotEmpty() && records.isEmpty()) {
             Log.w(TAG, "Ignoring history response beyond this wear's proven live id")
@@ -3818,6 +3863,8 @@ class AnytimeBleManager(
         // Store the whole batch before ordered history replay; live frames are also
         // processed ascending. Old/duplicate pushes never advance either model.
         for (rec in records) synchronized(rawAlgorithmWindow) { rawAlgorithmWindow[rec.glucoseId] = rec }
+        val rewrite = if (!push) validManualHistoryRewrite() else null
+        if (rewrite != null) records.forEach { rewrite.receive(it.glucoseId) }
         val historyModelResults = if (!push && familyEntry.family == AnytimeConstants.Family.CT4)
             AnytimeAlgorithm.replayCt4AvailableHistory(synchronized(rawAlgorithmWindow) { rawAlgorithmWindow.values.toList() }, qr, familyEntry)
         else emptyMap()
@@ -3825,7 +3872,11 @@ class AnytimeBleManager(
             if (push && rec.glucoseId <= lastGlucoseId) continue
             // Raw inputs remain available for replay, but a history pull must
             // not replace a value already emitted by this wear's live filter.
-            if (!push && familyEntry.family == AnytimeConstants.Family.CT4 && rec.glucoseId in liveModelIds) continue
+            if (!push && familyEntry.family == AnytimeConstants.Family.CT4) {
+                if (rewrite != null) {
+                    if (!rewrite.canReplace(rec.glucoseId, historyModelResults[rec.glucoseId]?.historyCompletePrefix == true)) continue
+                } else if (rec.glucoseId in liveModelIds) continue
+            }
             synchronized(rawAlgorithmWindow) {
                 rawAlgorithmWindow[rec.glucoseId] = rec
             }
@@ -4469,6 +4520,9 @@ class AnytimeBleManager(
         }
         val rawMgdl = if (result.rawMgdl.isNaN()) result.mgdl else result.rawMgdl
         if (result.errorCode != 0 || result.mgdlTimes10 < 170) {
+            // A confirmed correction must never replace a valid stored value with
+            // raw-only/zero glucose when recomputation fails.
+            if (history && !live && manualHistoryRewrite?.active == true) return false
             if (live || !history) {
                 Log.w(
                     TAG,
@@ -4760,7 +4814,8 @@ class AnytimeBleManager(
     }
 
     private fun queueHistoryReadingForRoom(sampleMs: Long, result: AnytimeAlgorithm.Result) {
-        val queued = historyRoomImportBuffer.queue(sampleMs, result)
+        val queued = historyRoomImportBuffer.queue(sampleMs, result,
+            replaceExisting = validManualHistoryRewrite()?.canReplace(result.glucoseId, result.historyCompletePrefix) == true)
         val tally = activeHistoryTally
         if (tally != null) {
             // Batched accounting; the caller logs one summary line for the range.
@@ -4819,8 +4874,8 @@ class AnytimeBleManager(
                     sensorSerial = name,
                     readings = imports.map { it.reading },
                     logLabel = "Anytime $source",
-                    nearDuplicateWindowMs = if (source == AnytimeAlgorithm.Source.LINEAR ||
-                        source == AnytimeAlgorithm.Source.MODEL
+                    nearDuplicateWindowMs = if (manualHistoryRewrite?.active != true &&
+                        (source == AnytimeAlgorithm.Source.LINEAR || source == AnytimeAlgorithm.Source.MODEL)
                     ) {
                         HISTORY_ROOM_IMPORT_NEAR_DUPLICATE_MS
                     } else {
@@ -4844,6 +4899,7 @@ class AnytimeBleManager(
                                 "(ids=$firstId..$lastId rawLast=${"%.1f".format(raw)} mg/dL)"
                     )
                     historyRoomImportBuffer.markImported(imports)
+                    manualHistoryRewrite?.takeIf { it.active }?.didWrite(imports.map { it.glucoseId })
                     // Mirror the accepted batch into native storage so history
                     // reaches the watch mirror and phone↔phone followers. Ascending
                     // order lets the batch rewind the mirror cursor once, from the
@@ -4854,6 +4910,7 @@ class AnytimeBleManager(
                 }
             }.onFailure { Log.stack(TAG, "flushPendingHistoryRoomImports", it) }
         }
+        persistManualHistoryRewrite()
     }
 
     private fun persistTemperatureHistory(records: List<AnytimeRegistry.TemperatureRecord>) {
@@ -5143,7 +5200,8 @@ class AnytimeBleManager(
                 "K0：${AnytimeAlgorithm.effectiveModelK0(q)} (${if (q?.hasAlgorithmCalibration == true) type else "MK4 默认"})；Raw R：${q?.takeIf { it.hasAlgorithmCalibration }?.r ?: 50f} (${if (q?.hasAlgorithmCalibration == true) type else "默认"})\n"
              else "K：${q?.takeIf { it.hasAlgorithmCalibration }?.k ?: .30f} · R：${q?.takeIf { it.hasAlgorithmCalibration }?.r ?: 50f}\n") +
             "电压模式：$voltageFlag (${if (q != null) type else "默认"})\n" +
-            if (q?.hasAlgorithmCalibration != true) "正在使用默认计算参数" else if (!matched) "旧版参数归属未确认，请核对当前探头" else "二维码参数已进入当前计算配置；运行值以本周期采样为准"
+            (if (q?.hasAlgorithmCalibration != true) "正在使用默认计算参数" else if (!matched) "旧版参数归属未确认，请核对当前探头" else "二维码参数已进入当前计算配置；运行值以本周期采样为准") +
+            (manualHistoryRewrite?.let { "\n历史修订：${it.status}" } ?: "")
     }
 
     override fun setQrCalibration(rawQr: String): Boolean {
@@ -5169,6 +5227,13 @@ class AnytimeBleManager(
             AnytimeWearStore.bindQr(ctx, id, parsed.rawQr, glucoseTimelineStartAtMs)
             UiRefreshBus.requestStatusRefresh()
             return
+        }
+        if (manualHistoryRewrite?.active == true) {
+            flushPendingHistoryRoomImports()
+            stopHistoryBackfill()
+            manualHistoryRewrite?.cancel("二维码已变更，历史重算已停止；请核对参数后重新确认历史操作")
+            persistBackfillCursor(completed = true)
+            interruptedBackfillFromId = -1
         }
         persistAlgorithmState()
         AnytimeWearStore.bindQr(ctx, id, parsed.rawQr, glucoseTimelineStartAtMs)
@@ -5645,10 +5710,58 @@ class AnytimeBleManager(
 
     override fun isUiEnabled(): Boolean = !stop
 
+    override fun supportsManualHistoryRecompute(): Boolean = familyEntry.family == AnytimeConstants.Family.CT4
+
+    // Called from Room's IO dispatcher while the BLE thread awaits that write.
+    // Do not acquire the driver monitor here.
+    override fun isManualHistoryRecomputeActive(): Boolean = manualHistoryRewrite?.active == true
+
+    private fun validManualHistoryRewrite(): AnytimeManualHistoryRewrite? {
+        val ctx = Applic.app ?: return null
+        val id = SerialNumber ?: return null
+        return manualHistoryRewrite?.takeIf { it.active &&
+            it.matches(AnytimeWearStore.session(ctx, id), qr?.rawQr, glucoseTimelineStartAtMs) }
+    }
+
+    private fun persistManualHistoryRewrite() {
+        val ctx = Applic.app ?: return
+        val id = SerialNumber ?: return
+        val task = manualHistoryRewrite ?: return
+        ctx.getSharedPreferences("tk.glucodata_preferences", Context.MODE_PRIVATE).edit()
+            .putString("anytime_manual_history_$id", task.json()).apply()
+    }
+
+    @Synchronized
+    private fun startManualHistoryRewrite() {
+        val ctx = Applic.app ?: return
+        val id = SerialNumber ?: return
+        if (phase != Phase.STREAMING || !hasUsableHistoryTimeline() || wearPolicy.hasPendingRollover()) return
+        flushPendingHistoryRoomImports()
+        stopHistoryBackfill()
+        interruptedBackfillFromId = -1
+        historyRoomImportBuffer.clear()
+        val task = AnytimeManualHistoryRewrite(AnytimeWearStore.session(ctx, id), qr?.rawQr,
+            glucoseTimelineStartAtMs, (highestLiveIdForWear + 1).coerceAtLeast(1))
+        // Consent must survive a crash before the first pull is sent.
+        check(ctx.getSharedPreferences("tk.glucodata_preferences", Context.MODE_PRIVATE).edit()
+            .putString("anytime_manual_history_$id", task.json()).commit())
+        manualHistoryRewrite = task
+        startHistoryBackfill(AnytimeManualHistoryRewrite.REASON, 0, task.stopBeforeId)
+        UiRefreshBus.requestStatusRefresh()
+    }
+
     override fun requestHistoryBackfill(): Boolean {
         if (phase != Phase.STREAMING) {
             Log.w(TAG, "requestHistoryBackfill ignored — phase=$phase")
             return false
+        }
+        if (supportsManualHistoryRecompute()) {
+            if (!hasUsableHistoryTimeline() || wearPolicy.hasPendingRollover() || highestLiveIdForWear < 0) return false
+            handler.post {
+                try { startManualHistoryRewrite() }
+                catch (ex: Exception) { Log.stack(TAG, "manual history recompute could not start", ex) }
+            }
+            return true
         }
         if (isCt5()) {
             synchronized(ct5SkippedHistoryIds) { ct5SkippedHistoryIds.clear() }

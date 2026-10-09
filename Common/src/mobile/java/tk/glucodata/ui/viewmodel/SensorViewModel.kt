@@ -1099,6 +1099,9 @@ class SensorViewModel : ViewModel() {
             }
     }
 
+    fun anytimeHistoryRecomputeSupported(serial: String): Boolean =
+        (findGatt(serial) as? AnytimeDriver)?.supportsManualHistoryRecompute() == true
+
     fun clearCalibration(serial: String) {
         val gatt = findGatt(serial)
         if (gatt != null && gatt.dataptr != 0L) {

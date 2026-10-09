@@ -8,6 +8,8 @@ internal class AnytimeWearPolicy {
     private var firstAt = 0L
     private var confirmations = 0
 
+    fun hasPendingRollover(): Boolean = firstId >= 0
+
     fun observe(liveId: Int, previousMaxId: Int, oldStartMs: Long, nowMs: Long, intervalMs: Long): Decision {
         if (!liveIdLooksRolledBack(liveId, previousMaxId, 48)) {
             reset()

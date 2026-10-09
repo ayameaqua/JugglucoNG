@@ -12,6 +12,14 @@ import org.junit.Test
  * number it was drawn from is void; one whose number stands is kept.
  */
 class RecordedDisplayVoidingTests {
+    @Test fun confirmedPartialRewriteVoidsChangedAutoAndRawButRetainsUnreceivedMinutes() {
+        val records = listOf(record(0, 100f), record(1, 104f), record(2, 90f, viewMode = 1),
+            record(2, 70f, serial = "other"))
+        val rewritten = listOf(reading(0, 120f, 95f), reading(2, 120f, 99f))
+        assertEquals(listOf(record(0, 0f).timestamp, record(2, 0f).timestamp),
+            RecordedDisplayVoiding.minutesToVoid(records, SERIAL, rewritten,
+                autoLaneIntegrated = true, rawLaneIntegrated = true, invalidateMissing = false))
+    }
 
     private companion object {
         const val MINUTE = ReadingDisplay.MINUTE_MS

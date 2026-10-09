@@ -609,11 +609,16 @@ fun SensorCard(
         AlertDialog(
             onDismissRequest = { showAnytimeHistoryDialog = false },
             title = { Text(stringResource(R.string.streamhistory)) },
-            text = { Text(stringResource(R.string.anytime_history_fetch_warning)) },
+            text = { Text(stringResource(if (viewModel.anytimeHistoryRecomputeSupported(sensor.serial))
+                R.string.anytime_history_recompute_warning else R.string.anytime_history_fetch_warning)) },
             confirmButton = {
                 TextButton(
                     onClick = {
-                        viewModel.requestAnytimeHistory(sensor.serial)
+                        if (!viewModel.requestAnytimeHistory(sensor.serial)) {
+                            android.widget.Toast.makeText(context,
+                                context.getString(R.string.anytime_history_not_ready),
+                                android.widget.Toast.LENGTH_LONG).show()
+                        }
                         showAnytimeHistoryDialog = false
                     }
                 ) { Text(stringResource(R.string.streamhistory)) }

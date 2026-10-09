@@ -29,6 +29,7 @@ import java.util.AbstractList;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.IntToLongFunction;
+import java.util.function.BiFunction;
 
 /** A snapshot of valid readings within a bounded native poll-index range. */
 public final class GlucoseList extends AbstractList<BloodGlucoseRecord> {
@@ -38,8 +39,19 @@ public final class GlucoseList extends AbstractList<BloodGlucoseRecord> {
         this(meta, start, len, sensorName, pos -> Natives.streamfromSensorptr(sensorptr, pos, start + len));
     }
 
+    public GlucoseList(Metadata meta, long sensorptr, int start, int len, String sensorName,
+                       BiFunction<String, Integer, Long> versions) {
+        this(meta, start, len, sensorName,
+                pos -> Natives.streamfromSensorptr(sensorptr, pos, start + len), versions);
+    }
+
     // A reader seam lets host tests exercise sparse native windows without JNI.
     GlucoseList(Metadata meta, int start, int len, String sensorName, IntToLongFunction reader) {
+        this(meta, start, len, sensorName, reader, (id, mgdl) -> 0L);
+    }
+
+    GlucoseList(Metadata meta, int start, int len, String sensorName, IntToLongFunction reader,
+                BiFunction<String, Integer, Long> versions) {
         final int end = start + len;
         int pos = start;
         while (pos < end) {
@@ -48,8 +60,8 @@ public final class GlucoseList extends AbstractList<BloodGlucoseRecord> {
             final int mgdl = (int) ((packed >>> 32) & 0xFFFF);
             final int next = (int) ((packed >>> 48) & 0xFFFF);
             if (time > 0 && mgdl > 0) {
-                final long clientVersion = 0L;
                 final String clientRecordId = "juggluco-ng:glucose:" + sensorName + ":" + time;
+                final long clientVersion = versions.apply(clientRecordId, mgdl);
                 final Metadata metadata = Metadata.unknownRecordingMethod(
                         clientRecordId, clientVersion, meta.getDevice());
                 records.add(new BloodGlucoseRecord(Instant.ofEpochSecond(time), null, metadata,

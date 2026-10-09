@@ -854,11 +854,14 @@ class HistoryRepository(context: Context = Applic.app) {
         rewritten: List<HistoryReading>,
     ): Int {
         if (rewritten.isEmpty()) return 0
+        val manualHistoryRewrite = (tk.glucodata.drivers.ManagedSensorRuntime.resolveDriver(driverSerial)
+            as? tk.glucodata.drivers.anytime.AnytimeDriver)?.isManualHistoryRecomputeActive() == true
         val autoIntegrated = runCatching {
             tk.glucodata.drivers.ManagedSensorRuntime.integratesUserCalibration(driverSerial, false)
         }.getOrDefault(false)
         val rawIntegrated = runCatching {
             tk.glucodata.drivers.ManagedSensorRuntime.integratesUserCalibration(driverSerial, true)
+                || manualHistoryRewrite
         }.getOrDefault(false)
         if (!autoIntegrated && !rawIntegrated) return 0
         return withContext(Dispatchers.IO) {
@@ -868,6 +871,7 @@ class HistoryRepository(context: Context = Applic.app) {
                 val records = displayDao.getBetween(start, end)
                 val minutes = RecordedDisplayVoiding.minutesToVoid(
                     records, roomSerial, rewritten, autoIntegrated, rawIntegrated,
+                    invalidateMissing = !manualHistoryRewrite,
                 )
                 if (minutes.isEmpty()) return@withContext 0
                 var deleted = 0

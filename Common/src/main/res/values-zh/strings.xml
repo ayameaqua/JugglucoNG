@@ -2910,4 +2910,6 @@ Pressing OK will generate a connection on this phone and display a QR code that 
     <string name="clone_network_summary">服务器与本地发现</string>
     <string name="clone_connections_empty">尚无已配对设备。</string>
     <string name="clone_background_desc">会增加耗电量</string>
+    <string name="anytime_history_recompute_warning">重新读取当前探头截至此刻的历史，并使用当前参数重算；没有校准二维码时使用默认参数。有效结果将覆盖已有数值，并按已启用的上报设置同步修订。时间戳与旧佩戴周期保持原样；缺失原始数据、预热或计算无效的记录保留原值。可能耗时数分钟，实时采集继续。请先核对当前探头二维码，再确认。</string>
+    <string name="anytime_history_not_ready">历史操作未开始。请等待连接稳定并确认当前探头的实时记录后重试。</string>
 </resources>

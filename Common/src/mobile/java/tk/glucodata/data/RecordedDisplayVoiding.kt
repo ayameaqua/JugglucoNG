@@ -38,6 +38,7 @@ object RecordedDisplayVoiding {
         rewritten: List<HistoryReading>,
         autoLaneIntegrated: Boolean,
         rawLaneIntegrated: Boolean,
+        invalidateMissing: Boolean = true,
     ): List<Long> {
         if (records.isEmpty() || rewritten.isEmpty()) return emptyList()
         if (!autoLaneIntegrated && !rawLaneIntegrated) return emptyList()
@@ -54,6 +55,7 @@ object RecordedDisplayVoiding {
         for (record in records) {
             if (record.timestamp < first || record.timestamp > last) continue
             if (!tk.glucodata.SensorIdentity.matches(record.sensorSerial, sensorSerial)) continue
+            if (!invalidateMissing && record.timestamp !in byMinute) continue
             if (!recordStandsFor(record, byMinute[record.timestamp], autoLaneIntegrated, rawLaneIntegrated)) {
                 voided.add(record.timestamp)
             }

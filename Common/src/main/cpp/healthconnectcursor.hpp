@@ -39,6 +39,13 @@ inline void gapFilled(uint16_t *cursor, uint16_t position) {
   if (position < current) __atomic_store_n(cursor, position, __ATOMIC_RELAXED);
 }
 
+// Rewriting a nonempty slot is also a revision. A duplicate replay of the same
+// glucose must not invalidate the export repeatedly or the worker could starve.
+inline void glucoseWritten(uint16_t *cursor, uint16_t position,
+                           int32_t previous, int32_t current) {
+  if (current > 0 && previous != current) gapFilled(cursor, position);
+}
+
 inline void reset(uint16_t *cursor, uint16_t position) {
   std::lock_guard lock(cursorMutex);
   ++revisions[cursor];
