@@ -62,13 +62,14 @@ internal object AnytimeWearStore {
         val p = prefs(ctx)
         val suffix = "_${AnytimeConstants.PREF_TIMELINE_START_AT_PREFIX}$id"
         val result = mutableMapOf<String, Long>()
-        p.all.forEach { (k, value) ->
+        val values = p.all // One atomic preferences view during concurrent rollover.
+        values.forEach { (k, value) ->
             if (k.startsWith("anytime_archive_") && k.endsWith(suffix) && value is Long && value > 0) {
                 result[k.removePrefix("anytime_archive_").removeSuffix(suffix)] = value
             }
         }
-        val current = p.getString(key(id, "id"), null)
-        val start = p.getLong(AnytimeConstants.PREF_TIMELINE_START_AT_PREFIX + id, 0L)
+        val current = values[key(id, "id")] as? String
+        val start = values[AnytimeConstants.PREF_TIMELINE_START_AT_PREFIX + id] as? Long ?: 0L
         if (current != null && start > 0) result[current] = start
         return result
     }

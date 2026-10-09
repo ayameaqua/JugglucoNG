@@ -111,4 +111,24 @@ class HealthConnectSourcesTest {
         assertEquals(source, store.find("health-uuid-1"))
         store.close()
     }
+    @Test fun anytimeRolloverWithNoNewAnchorKeepsOldHistoryInArchivedWear() {
+        val id = "ANY:source-archive-test"
+        val prefs = context.getSharedPreferences("tk.glucodata_preferences", 0)
+        prefs.edit().clear().commit()
+        val old = tk.glucodata.drivers.anytime.AnytimeWearStore.session(context, id)
+        tk.glucodata.drivers.anytime.AnytimeRegistry.saveTimelineStartAt(context, id, 100_000L)
+        val fresh = tk.glucodata.drivers.anytime.AnytimeWearStore.rollover(context, id, false)
+        val store = HealthConnectSources(context)
+        val source = store.register(id, manufacturer = "Yuwell", model = "CT4")
+        val resolved = HealthConnectSources.resolve(context, store, id)
+        store.observeDriverWear(context, resolved, 100_000L) // Retained native shell's OLD clock.
+        assertEquals(source.uid, resolved.uid)
+        assertEquals(old, store.wearAt(id, 110_000L))
+        assertNotEquals(fresh, store.wearAt(id, 110_000L))
+        val record = record(id, 110_000L)
+        store.index(source, listOf(record), false)
+        assertEquals(old, store.lookup(record.metadata.clientRecordId!!)!!.wearId)
+        assertEquals(0L, tk.glucodata.drivers.anytime.AnytimeRegistry.loadTimelineStartAt(context, id))
+        store.close()
+    }
 }

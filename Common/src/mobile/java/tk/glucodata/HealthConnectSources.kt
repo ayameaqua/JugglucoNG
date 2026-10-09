@@ -65,6 +65,12 @@ internal class HealthConnectSources(context: Context) :
         val id = explicitId ?: known ?: UUID.randomUUID().toString()
         writableDatabase.insertWithOnConflict("wears", null, ContentValues().apply { put("id", id); put("serial", source.serial); put("start_ms", startMs) }, SQLiteDatabase.CONFLICT_IGNORE)
     }
+    /** Hardware shell clocks are not evidence of an Anytime probe's current wear. */
+    fun observeDriverWear(context: Context, source: Source, hardwareStartMs: Long) {
+        if (source.manufacturer == "Yuwell") {
+            AnytimeWearStore.knownSessions(context, source.serial).forEach { (id, start) -> observeWear(source, start, id) }
+        } else observeWear(source, hardwareStartMs)
+    }
     @Synchronized fun wearAt(serial: String, epochMs: Long): String? = readableDatabase.query("wears", arrayOf("id"),
         "serial=? AND start_ms<=?", arrayOf(serial, epochMs.toString()), null, null, "start_ms DESC", "1").use { if (it.moveToFirst()) it.getString(0) else null }
 
@@ -131,14 +137,14 @@ internal class HealthConnectSources(context: Context) :
                 else -> null
             }
             val source = store.register(serial, alias, manufacturer, model)
-            if (vendor == SensorVendor.YUWELL || source.manufacturer == "Yuwell") {
-                AnytimeWearStore.knownSessions(context, serial).forEach { (id, start) -> store.observeWear(source, start, id) }
-            }
             val start = managed?.startTimeMs?.takeIf { it > 0 }
                 ?: anytime?.let { AnytimeRegistry.loadTimelineStartAt(context, it.sensorId).takeIf { ms -> ms > 0 } }
                 ?: sibionics?.let { SibionicsRegistry.loadStartTimeMs(context, it.sensorId).takeIf { ms -> ms > 0 } }
                 ?: if (backingPtr != 0L) runCatching { Natives.getSensorStartmsecFromSensorptr(backingPtr) }.getOrDefault(0L) else 0L
-            store.observeWear(source, start, if (vendor == SensorVendor.YUWELL) AnytimeWearStore.session(context, serial) else null)
+            // Anytime's native shell can still contain the previous wear during
+            // warm-up. Only its confirmed timeline archive above proves wear
+            // ownership; do not assign a new UUID to that shell's old clock.
+            store.observeDriverWear(context, source, start)
             return source
         }
     }
