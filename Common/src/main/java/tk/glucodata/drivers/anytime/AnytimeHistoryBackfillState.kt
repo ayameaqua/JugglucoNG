@@ -159,7 +159,7 @@ internal class AnytimeHistoryRoomImportBuffer {
     @Synchronized
     fun queue(sampleMs: Long, result: AnytimeAlgorithm.Result): Boolean {
         val raw = if (result.rawMgdl.isNaN()) result.mgdl else result.rawMgdl
-        val priority = sourcePriority(result.source)
+        val priority = sourcePriority(result.source) + if (result.source == AnytimeAlgorithm.Source.MODEL && result.historyCompletePrefix) 1 else 0
         return queueInternal(
             sampleMs = sampleMs,
             glucoseId = result.glucoseId,

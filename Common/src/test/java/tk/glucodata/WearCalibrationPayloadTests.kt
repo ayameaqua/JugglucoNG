@@ -346,4 +346,20 @@ class WearCalibrationPayloadTests {
         assertFalse(GlucoseValuePlausibility.isPlausibleMgdl(19.9f))
         assertFalse(GlucoseValuePlausibility.isPlausibleMgdl(11_557f))
     }
+    @Test
+    fun integratedWatchCalibrationCannotCrossProbeWearBoundary() {
+        val oldAt = 1_700_000_000_000L
+        val newAt = oldAt + 15 * 86400_000L
+        val old = doubleArrayOf(100.0, 120.0, oldAt.toDouble())
+        val payload = WearCalibrationPayload("ANY:reused", 2L, false, false,
+            WearCalibrationMode(old), WearCalibrationMode(DoubleArray(0)), autoIntegration = WearCalibrationMode(old),
+            tuning = tk.glucodata.data.calibration.CalibrationTuning.DEFAULT.copy(algorithm = "xdrip_median_slope", applyToPast = true))
+        val values = floatArrayOf(100f, 100f)
+        val times = longArrayOf(oldAt + 60_000L, newAt + 60_000L)
+        val result = SyncedWearCalibrationProvider.integrateWithPayload(values, times, false, 1f, payload) {
+            if (it < newAt) 0L until newAt else newAt..Long.MAX_VALUE
+        }
+        assertTrue(result[0] > 100f)
+        assertEquals(100f, result[1], 0f)
+    }
 }

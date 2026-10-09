@@ -151,6 +151,9 @@ interface HistoryDao {
     @Query("SELECT * FROM history_readings WHERE timestamp >= :startTime ORDER BY timestamp ASC")
     suspend fun getReadingsSince(startTime: Long): List<HistoryReading>
 
+    @Query("SELECT * FROM history_readings WHERE id > :afterId AND firstStoredAt <= :cutoff ORDER BY id ASC LIMIT :limit")
+    suspend fun healthExportPage(afterId: Long, cutoff: Long, limit: Int): List<HistoryReading>
+
     @Query("""
         SELECT * FROM history_readings
         WHERE timestamp >= :startTime

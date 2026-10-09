@@ -1,6 +1,7 @@
-# Health timeline and agent access — design draft
+# Health timeline and agent export
 
-This directory contains a reviewable design, not an implemented Android feature.
+The first Android implementation is in this branch; device verification is pending.
+The design also describes richer chart controls that remain future work.
 All records under `examples/` are synthetic. No SDK binary, real health capture,
 device identifier, signing key or MCP credential is included.
 
@@ -44,7 +45,7 @@ and comply with its licence. Do not commit or upload its ZIP, AAR, JAR, source
 archive, tools, or SDK-containing APK to GitHub or GitHub Actions artifacts.
 Ignoring files is one guard; CI and distribution must also exclude the SDK variant.
 
-Planned build interface, **not wired into Gradle yet**:
+Implemented optional build interface:
 
 - Normal builds and CI: SDK disabled; ordinary phone/watch builds remain possible.
 - Personal phone build: `-PsamsungHealthEnabled=true` and
@@ -69,4 +70,5 @@ The separate private probe already demonstrated six read families on
 SM-S9180 / Android 16 / Samsung Health 7.00.6.012 with SDK 1.1.0.
 This is evidence for the proposed adapter, not proof that every listed SDK type,
 the JugglucoNG integration, or a ChatGPT/MCP connection has been tested.
-Those validations belong to subsequent implementation work.
+See [implementation and verification](implementation.zh-CN.md) for the actual integration,
+export contents, tests and remaining device checks.

@@ -45,6 +45,8 @@ interface AnytimeDriver : ManagedBluetoothSensorDriver, ManagedSensorMaintenance
     /** Set / push K/R from a freshly-scanned QR code. */
     fun setQrCalibration(rawQr: String): Boolean
 
+    fun getProbeAlgorithmStatus(): String = "尚无运行状态"
+
     /** Push a fingerstick reference BG (mg/dL) to the transmitter. */
     fun pushReferenceBg(mgdl: Int): Boolean
 

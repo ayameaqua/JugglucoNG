@@ -1,0 +1,120 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.juggluco.invalid/health/0.1.0/record.schema.json",
+  "title": "JugglucoNG canonical health record, design draft 0.1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "record_id", "kind", "granularity", "time", "source", "metrics", "attributes", "quality", "relations", "series_refs", "imported_at_utc"],
+  "properties": {
+    "schema_version": {"const": "0.1.0"},
+    "record_id": {"type": "string", "minLength": 1},
+    "kind": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
+    "granularity": {"enum": ["point", "interval", "daily", "profile"]},
+    "time": {"$ref": "#/$defs/time"},
+    "source": {
+      "type": "object", "additionalProperties": false,
+      "required": ["provider", "record_alias"],
+      "properties": {
+        "provider": {"enum": ["juggluco", "samsung_health", "journal", "derived"]},
+        "app_id": {"type": ["string", "null"]},
+        "record_alias": {"type": "string", "minLength": 1},
+        "device_alias": {"type": ["string", "null"]},
+        "sensor_alias": {"type": ["string", "null"]},
+        "method": {"type": ["string", "null"]}
+      }
+    },
+    "metrics": {
+      "type": "object",
+      "propertyNames": {"pattern": "^[a-z][a-z0-9_]*$"},
+      "additionalProperties": {"$ref": "#/$defs/metric"}
+    },
+    "attributes": {"type": "object"},
+    "quality": {
+      "type": "object", "additionalProperties": false,
+      "required": ["normalization", "origin", "flags"],
+      "properties": {
+        "normalization": {"enum": ["complete", "partial", "unmapped"]},
+        "origin": {"enum": ["measurement", "aggregate", "derived", "profile"]},
+        "flags": {"type": "array", "items": {"type": "string"}, "uniqueItems": true}
+      }
+    },
+    "relations": {
+      "type": "array", "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["relation", "record_id"],
+        "properties": {
+          "relation": {"type": "string", "minLength": 1},
+          "record_id": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "series_refs": {
+      "type": "array", "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["series_id", "semantic_type", "count"],
+        "properties": {
+          "series_id": {"type": "string", "minLength": 1},
+          "semantic_type": {"enum": ["point_samples", "interval_summaries", "sleep_stages", "exercise_log", "exercise_route"]},
+          "count": {"type": "integer", "minimum": 0}
+        }
+      }
+    },
+    "source_updated_at_utc": {"anyOf": [{"$ref": "#/$defs/utc"}, {"type": "null"}]},
+    "imported_at_utc": {"$ref": "#/$defs/utc"}
+  },
+  "allOf": [
+    {"if": {"properties": {"granularity": {"enum": ["point", "interval"]}}}, "then": {"properties": {"time": {"properties": {"basis": {"const": "instant_interval"}}}}}},
+    {"if": {"properties": {"granularity": {"const": "daily"}}}, "then": {"properties": {"time": {"properties": {"basis": {"const": "local_date"}}}}}},
+    {"if": {"properties": {"granularity": {"const": "profile"}}}, "then": {"properties": {"time": {"properties": {"basis": {"const": "snapshot"}}}}}}
+  ],
+  "$defs": {
+    "utc": {"type": "string", "format": "date-time", "pattern": "Z$"},
+    "metric": {
+      "type": "object", "additionalProperties": false,
+      "required": ["value", "unit", "statistic"],
+      "properties": {
+        "value": {"type": ["number", "string", "boolean", "null"]},
+        "unit": {"type": "string", "minLength": 1},
+        "statistic": {"enum": ["instant", "mean", "min", "max", "total", "duration", "category"]},
+        "missing_reason": {"enum": ["not_provided", "not_measured", "unmapped", "permission_denied"]}
+      },
+      "allOf": [{"if": {"properties": {"value": {"type": "null"}}}, "then": {"required": ["missing_reason"]}, "else": {"not": {"required": ["missing_reason"]}}}]
+    },
+    "time": {
+      "oneOf": [
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["basis", "start_utc", "end_utc", "start_epoch_ms", "end_epoch_ms", "original_offset"],
+          "properties": {
+            "basis": {"const": "instant_interval"},
+            "start_utc": {"$ref": "#/$defs/utc"},
+            "end_utc": {"$ref": "#/$defs/utc"},
+            "start_epoch_ms": {"type": "integer"},
+            "end_epoch_ms": {"type": "integer"},
+            "original_offset": {"type": ["string", "null"], "pattern": "^(Z|[+-][0-9]{2}:[0-9]{2})$"},
+            "original_local_start": {"type": ["string", "null"]},
+            "original_local_end": {"type": ["string", "null"]}
+          }
+        },
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["basis", "date", "calendar_basis"],
+          "properties": {
+            "basis": {"const": "local_date"},
+            "date": {"type": "string", "format": "date"},
+            "calendar_basis": {"type": "string", "minLength": 1},
+            "query_timezone": {"type": ["string", "null"]},
+            "reported_start_utc": {"$ref": "#/$defs/utc"},
+            "reported_end_utc": {"$ref": "#/$defs/utc"}
+          },
+          "dependentRequired": {"reported_start_utc": ["reported_end_utc"], "reported_end_utc": ["reported_start_utc"]}
+        },
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["basis", "observed_at_utc"],
+          "properties": {"basis": {"const": "snapshot"}, "observed_at_utc": {"$ref": "#/$defs/utc"}}
+        }
+      ]
+    }
+  }
+}

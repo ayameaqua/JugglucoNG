@@ -54,7 +54,8 @@ class AnytimeQrTests {
         parsed!!
 
         assertEquals(AnytimeQrCalibration.Format.MANUAL, parsed.format)
-        assertTrue(parsed.isFactoryCalibration)
+        assertFalse(parsed.isFactoryCalibration)
+        assertTrue(parsed.hasAlgorithmCalibration)
         assertEquals(3.45f, parsed.k, 0.0001f)
         assertEquals(6f, parsed.r, 0.0001f)
     }
@@ -66,7 +67,8 @@ class AnytimeQrTests {
         parsed!!
 
         assertEquals(AnytimeQrCalibration.Format.MANUAL, parsed.format)
-        assertTrue(parsed.isFactoryCalibration)
+        assertFalse(parsed.isFactoryCalibration)
+        assertTrue(parsed.hasAlgorithmCalibration)
         assertEquals(1.06f, parsed.k, 0.0001f)
         assertEquals(1f, parsed.r, 0.0001f)
         assertEquals(1, parsed.voltageFlag)

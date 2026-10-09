@@ -145,7 +145,10 @@ object SyncedWearCalibrationProvider : CalibrationProvider {
         if (values.size != timestamps.size || values.isEmpty()) return values.copyOf()
         val payload = matchingPayload(sensorId) ?: return values.copyOf()
         val watchUnit = if (runCatching { Applic.unit == 1 }.getOrDefault(false)) MGDL_PER_MMOL else 1f
-        return integrateWithPayload(values, timestamps, isRawMode, watchUnit, payload)
+        return integrateWithPayload(values, timestamps, isRawMode, watchUnit, payload) { stamp ->
+            Applic.app?.let { ctx -> WearCalibrationBoundary.window(ctx, sensorId ?: payload.sensorId, stamp)
+                ?: WearCalibrationBoundary.window(ctx, payload.sensorId, stamp) }
+        }
     }
 
     /** Pure seam for [getIntegratedCalibratedSeries]; see [calibrateWithPayload]. */
@@ -155,6 +158,7 @@ object SyncedWearCalibrationProvider : CalibrationProvider {
         isRawMode: Boolean,
         watchUnitMgdlPerUnit: Float,
         payload: WearCalibrationPayload,
+        wearWindow: (Long) -> LongRange? = { null },
     ): FloatArray {
         val points = pointsOf(
             if (isRawMode) payload.rawIntegration else payload.autoIntegration,
@@ -164,6 +168,8 @@ object SyncedWearCalibrationProvider : CalibrationProvider {
         val tuning = if (isRawMode) payload.rawTuning else payload.tuning
         return FloatArray(values.size) { index ->
             val value = values[index]
+            val window = wearWindow(timestamps[index])
+            val scopedPoints = if (window == null) points else points.filter { it.timestamp in window }
             if (!value.isFinite() || value <= 0f) {
                 value
             } else {
@@ -173,13 +179,13 @@ object SyncedWearCalibrationProvider : CalibrationProvider {
                 // choice, or the watch and the phone disagree on old readings.
                 val resolved = if (tuning.lockPastHistory) {
                     tk.glucodata.data.calibration.CalibrationMath.resolvePointsForTimestamp(
-                        allPoints = points,
+                        allPoints = scopedPoints,
                         targetTimestamp = timestamps[index],
-                        earliestPoint = points.firstOrNull(),
+                        earliestPoint = scopedPoints.firstOrNull(),
                         tuning = tuning,
                     )
                 } else {
-                    points
+                    scopedPoints
                 }
                 if (resolved.isEmpty()) {
                     value

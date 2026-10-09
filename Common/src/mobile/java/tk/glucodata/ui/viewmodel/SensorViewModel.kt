@@ -1080,6 +1080,12 @@ class SensorViewModel : ViewModel() {
             .getOrDefault(false)
     }
 
+    fun anytimeProbeStatus(serial: String): String = (findGatt(serial) as? AnytimeDriver)?.getProbeAlgorithmStatus()
+        ?: "驱动尚未运行；二维码持久化不代表已被计算采用"
+
+    fun updateAnytimeProbeQr(serial: String, raw: String): Boolean =
+        tk.glucodata.drivers.anytime.AnytimeRegistry.updateCurrentProbeQr(tk.glucodata.Applic.app, serial, raw)
+
     fun requestAnytimeHistory(serial: String): Boolean {
         val driver = findGatt(serial) as? AnytimeDriver ?: return false
         return runCatching { driver.requestHistoryBackfill() }

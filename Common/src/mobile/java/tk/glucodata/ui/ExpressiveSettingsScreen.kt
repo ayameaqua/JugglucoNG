@@ -521,6 +521,14 @@ fun ExpressiveSettingsScreen(
                     )
                 }
                 SettingsItem(
+                    title = "健康数据与血糖",
+                    subtitle = "直接读取三星健康 · 联动时间线 · 全量导出给 Agent",
+                    icon = Icons.Default.Favorite,
+                    iconTint = exchangeColor,
+                    position = CardPosition.MIDDLE,
+                    onClick = { context.startActivity(android.content.Intent(context, tk.glucodata.healthinsights.HealthInsightsActivity::class.java)) }
+                )
+                SettingsItem(
                     title = stringResource(R.string.outbound_api_title),
                     subtitle = stringResource(R.string.outbound_api_desc),
                     icon = Icons.Default.CloudUpload,

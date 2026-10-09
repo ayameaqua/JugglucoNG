@@ -1,13 +1,16 @@
-# Health data contract 0.1.0 — draft
+# Health data contract 0.1.0
 
 This is the project data schema version, not the MCP wire-protocol version.
-Examples are synthetic and the integration has not been implemented yet.
+Examples are synthetic. The Android adapter and ZIP writer implement this envelope;
+real-device integration verification is pending. Unknown SDK fields remain explicit
+under `attributes.sdk_fields` / series `attributes.sdk_value`, with partial normalization.
 
 ## One model for UI, exports and MCP
 
 The SDK adapter produces explicit canonical fields. The UI, analysis, JSONL export
-and MCP query layer consume that model. SDK getter names and opaque Java object
-strings must not become the agent-facing contract. Optional raw captures remain
+consume that model; a future MCP layer can reuse it. Canonical metrics have stable names
+and known units. Public SDK getter names remain source attributes, never guessed canonical
+metrics or opaque Java object strings. Optional raw captures remain
 separate, carry the SDK version, and report unmapped or incomplete serialization.
 
 Each record has:

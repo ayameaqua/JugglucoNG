@@ -770,6 +770,8 @@ object AnytimeRegistry {
             Log.w(TAG, "addSensor: no address, QR, or device name provided")
             return null
         }
+        val validatedQr = normalizedQr.takeIf { it.isNotEmpty() }?.let { AnytimeAlgorithm.decodeQr(it) }
+        if (normalizedQr.isNotEmpty() && validatedQr == null) return null
         val safeName = displayName?.trim().takeUnless { it.isNullOrEmpty() }
             ?: deviceName?.trim().takeUnless { it.isNullOrEmpty() }
             ?: AnytimeConstants.DEFAULT_DISPLAY_NAME
@@ -785,20 +787,21 @@ object AnytimeRegistry {
         deviceName?.takeIf { it.isNotBlank() }?.let { saveDeviceName(context, sensorId, it) }
 
         if (normalizedQr.isNotEmpty()) {
+            AnytimeWearStore.bindQr(context, sensorId, normalizedQr, loadTimelineStartAt(context, sensorId))
             saveQrContent(context, sensorId, normalizedQr)
-            val parsed = AnytimeAlgorithm.decodeQr(normalizedQr)
+            val parsed = validatedQr
             if (parsed != null) {
                 saveKValue(context, sensorId, parsed.k)
                 saveRValue(context, sensorId, parsed.r)
                 saveLifetimeDays(context, sensorId, parsed.lifeTime)
                 saveVoltageFlag(context, sensorId, parsed.voltageFlag)
-                if (parsed.isFactoryCalibration) {
-                    Log.i(TAG, "Anytime sensor $sensorId QR decoded: K=${parsed.k} R=${parsed.r} life=${parsed.lifeTime}d")
+                if (parsed.hasAlgorithmCalibration) {
+                    Log.i(TAG, "Anytime sensor $sensorId ${parsed.format} parameters: K=${parsed.k} R=${parsed.r} life=${parsed.lifeTime}d")
                 } else {
                     Log.i(
                         TAG,
                         "Anytime sensor $sensorId QR recognized as product/UDI metadata; " +
-                                "using linear fallback K=${parsed.k} R=${parsed.r} life=${parsed.lifeTime}d"
+                                "using algorithm defaults; label life=${parsed.lifeTime}d"
                     )
                 }
             } else {
@@ -809,6 +812,24 @@ object AnytimeRegistry {
         if (connectNow) connectSensor(context, sensorId)
         ManagedSensorUiSignals.markDeviceListDirty()
         return sensorId
+    }
+
+    @JvmStatic
+    fun updateCurrentProbeQr(context: Context, sensorId: String, raw: String): Boolean {
+        val parsed = AnytimeAlgorithm.decodeQr(raw) ?: return false
+        val record = findRecord(context, sensorId) ?: return false
+        val active = SensorBluetooth.gattcallbacks.firstOrNull {
+            it is AnytimeDriver && SensorIdentity.matches(it.SerialNumber, record.sensorId)
+        } as? AnytimeDriver
+        if (active != null) return active.setQrCalibration(parsed.rawQr)
+        AnytimeWearStore.bindQr(context, record.sensorId, parsed.rawQr, loadTimelineStartAt(context, record.sensorId))
+        saveQrContent(context, record.sensorId, parsed.rawQr)
+        saveKValue(context, record.sensorId, parsed.k)
+        saveRValue(context, record.sensorId, parsed.r)
+        saveVoltageFlag(context, record.sensorId, parsed.voltageFlag)
+        saveCalibratorState(context, record.sensorId, null)
+        saveCt3NativeState(context, record.sensorId, null)
+        return true
     }
 
     /** Spin up a BLE callback for the given sensor and request a connect. */
@@ -827,7 +848,11 @@ object AnytimeRegistry {
         } ?: return
         if (callback is AnytimeBleManager) {
             callback.mActiveDeviceAddress = record.address.takeIf { it.isNotBlank() }
-            callback.restoreFromPersistence(context)
+            if (existing == null) callback.restoreFromPersistence(context)
+            else if (loadQrContent(context, record.sensorId).isNotBlank()) {
+                val saved = loadQrContent(context, record.sensorId)
+                if (callback.currentQrHash() != AnytimeWearStore.hash(saved)) callback.setQrCalibration(saved)
+            }
         }
         runCatching { SensorBluetooth.ensureCurrentSensorSelection() }
         if (SensorBluetooth.blueone === blue) {

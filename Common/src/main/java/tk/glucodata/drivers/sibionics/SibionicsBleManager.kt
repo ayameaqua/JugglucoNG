@@ -365,6 +365,11 @@ class SibionicsBleManager(
 
     fun restoreFromPersistence(context: Context) {
         sampleJournal = SibionicsSampleJournal(sampleJournalFile(context, SerialNumber))
+        if (SibionicsRegistry.probeChanged(context, SerialNumber)) {
+            sampleJournal?.archiveBeforeRestart()
+            SibionicsRegistry.archiveProbe(context, SerialNumber, clearProbe = false)
+            check(SibionicsRegistry.saveSessionRestart(context, SerialNumber, byteArrayOf()))
+        }
         calibrationRevision = tk.glucodata.CalibrationAccess.getRevision()
         val restored = SibionicsRegistry.findRecord(context, SerialNumber)
         record = restored
@@ -1531,7 +1536,7 @@ class SibionicsBleManager(
             "sensor session restarted: new start=$restartedAtMs previous start=$startTimeMs " +
                 "cursor=$knownCursor page idx=${samples.first().index}..${samples.last().index}",
         )
-        resetForSensorRestart()
+        if (!resetForSensorRestart(restartedAt = restartedAtMs)) return false
         if (!SibionicsSessionPolicy.shouldDownloadRestartedSessionFromStart(samples)) return true
         restartDownloadPending = true
         scheduleReconnect("new sensor session; downloading it from idx=0", BACKLOG_RECONNECT_DELAY_MS)
@@ -2184,11 +2189,25 @@ class SibionicsBleManager(
         )
     }
 
-    private fun resetForSensorRestart() {
+    private fun resetForSensorRestart(newQr: Boolean = false, restartedAt: Long = 0L): Boolean {
+        val ctx = Applic.app
+        val physicalProbeChanged = variant == SibionicsConstants.Variant.SIBIONICS2 &&
+            SibionicsSessionPolicy.shouldInvalidateProbe(newQr, ctx?.let { SibionicsRegistry.maintenanceResetAt(it, SerialNumber) } ?: 0L, restartedAt)
+        try { sampleJournal?.archiveBeforeRestart() }
+        catch (ex: Exception) { Log.stack(SibionicsConstants.TAG, "probe journal archive failed; new data withheld", ex); return false }
+        // Index reset after our maintenance command is not evidence of a new probe.
+        if (physicalProbeChanged && ctx != null) {
+            try { SibionicsRegistry.archiveProbe(ctx, SerialNumber, clearProbe = !newQr) }
+            catch (ex: Exception) { Log.stack(SibionicsConstants.TAG, "probe metadata archive failed; new data withheld", ex); return false }
+            probeCode = if (newQr) SibionicsRegistry.loadProbeCode(ctx, SerialNumber) else null
+            sensitivityOverride = null
+            automaticSensitivity = SibionicsSensitivity.sensitivityFor(shortCode, variant, probeCode)
+            sensitivity = automaticSensitivity
+            synchronized(algorithmLock) { algorithm.configure(shortCode, sensitivity, variant, algorithmSelection) }
+        }
         Log.i(SibionicsConstants.TAG, "sensor index restarted; clearing exact algorithm state")
         rebuildGeneration++
         synchronized(algorithmLock) { algorithm.reset() }
-        sampleJournal?.clear()
         lastIndex = 0
         lastIndexDirty = true
         algorithmStateDirty = true
@@ -2232,6 +2251,7 @@ class SibionicsBleManager(
             SibionicsResetReminder.cancel(context, SerialNumber)
             HistorySyncAccess.markSensorReset(SerialNumber)
         }
+        return true
     }
 
     private fun acceptRehydrationIndex(index: Int): Boolean {
@@ -2589,6 +2609,7 @@ class SibionicsBleManager(
         autoResetNotBeforeMs = System.currentTimeMillis() + AUTO_RESET_BACKOFF_MS
         sessionProbeNext = true
         Applic.app?.let {
+            SibionicsRegistry.markMaintenanceReset(it, SerialNumber)
             SibionicsRegistry.clearResetMaintenanceState(it, SerialNumber)
             SibionicsRegistry.saveAutoResetNotBeforeMs(it, SerialNumber, autoResetNotBeforeMs)
             SibionicsResetReminder.cancel(it, SerialNumber)
@@ -2687,6 +2708,12 @@ class SibionicsBleManager(
                 SibionicsProbeSensitivity.tryDecode(scannedProbe)
             } else null
             if (decoded != null) {
+                val changedIdentity = SibionicsSessionPolicy.probeIdentityChanged(probeCode, scannedProbe) || SibionicsRegistry.probeChanged(context, SerialNumber)
+                if (changedIdentity) {
+                    prepareForReconnect()
+                    if (!resetForSensorRestart(newQr = true)) return@post
+                    scheduleReconnect("new physical probe QR", 0L)
+                }
                 probeCode = scannedProbe
                 automaticSensitivity = decoded
                 val effective = sensitivityOverride ?: decoded

@@ -360,6 +360,7 @@ object CalibrationManager {
             hash = hash * 31L + value
         }
         mix(sensorId.hashCode().toLong())
+        tk.glucodata.WearCalibrationBoundary.window(Applic.app, sensorId, System.currentTimeMillis())?.let { mix(it.first) }
         mix(if (isRawMode) 1L else 0L)
         mix(if (enabled) 1L else 0L)
         mix(Applic.unit.toLong())
@@ -443,8 +444,10 @@ object CalibrationManager {
             isRawMode,
             sensorId,
         )
+        val currentWear = tk.glucodata.WearCalibrationBoundary.window(Applic.app, sensorId, System.currentTimeMillis())
         val points = context.allPoints
             .filter { it.isEnabled }
+            .filter { currentWear == null || it.timestamp in currentWear }
             .sortedBy { it.timestamp }
             .takeLast(MAX_MANAGED_CALIBRATION_ANCHORS)
         return DoubleArray(points.size * 3).also { packed ->
@@ -1724,6 +1727,23 @@ object CalibrationManager {
         }
         if (samples.isEmpty()) return FloatArray(0)
         val resolvedSensor = resolveSensorId(sensorIdOverride)
+        val windows = timestamps.map { tk.glucodata.WearCalibrationBoundary.window(Applic.app, resolvedSensor, it) }
+        if (windows.any { it != null }) {
+            // Avoid the transmitter-keyed context cache across physical wears.
+            val stored = resolveCalibrationContext(isRawMode, resolvedSensor) ?: return values.copyOf()
+            val output = values.copyOf()
+            for (window in windows.distinct()) {
+                val indices = windows.indices.filter { windows[it] == window }
+                val points = stored.allPoints.filter { window == null || it.timestamp in window }
+                if (points.none { it.isEnabled }) continue
+                val context = stored.copy(allPoints = points, earliestPoint = points.filter { it.isEnabled }.minByOrNull { it.timestamp })
+                val group = indices.map { samples[it] }
+                val rebased = applyRecordedStock(rebaseIntegratedContext(context, group), isRawMode, resolvedSensor)
+                val result = evaluateCalibratedSeries(group, isRawMode, false, rebased)
+                indices.forEachIndexed { n, index -> output[index] = result[n] }
+            }
+            return output
+        }
         val cacheKey = IntegratedContextCacheKey(resolvedSensor, isRawMode, calibrationRevision, Applic.unit)
         val baselineKey = IntegratedBaselineCacheKey(resolvedSensor, isRawMode, Applic.unit)
         val storedContext = resolveCalibrationContext(isRawMode, resolvedSensor)

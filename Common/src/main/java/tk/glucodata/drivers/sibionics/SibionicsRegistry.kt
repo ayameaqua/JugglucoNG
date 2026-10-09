@@ -228,6 +228,7 @@ object SibionicsRegistry {
             ?: identity.shortCode
         val idx = if (lockedVariant == variant) probe else locateRecord(records, identity)
         val existing = records.getOrNull(idx)
+        val previousProbe = existing?.let { loadProbeCode(context, it.sensorId) }
         val normalizedAddress = SibionicsConstants.normalizeBleAddress(address)
             ?: SibionicsConstants.normalizeBleAddress(existing?.address)
             ?: ""
@@ -254,7 +255,13 @@ object SibionicsRegistry {
         saveVariant(context, sensorId, lockedVariant)
         saveShortCode(context, sensorId, shortCode)
         if (identity.probeCode.isNotEmpty()) {
-            prefs(context).edit().putString(PREF_PROBE_CODE_PREFIX + sensorId, identity.probeCode).apply()
+            val oldProbe = previousProbe ?: loadProbeCode(context, sensorId)
+            val edit = prefs(context).edit().putString(PREF_PROBE_CODE_PREFIX + sensorId, identity.probeCode)
+            if (!oldProbe.isNullOrBlank() && oldProbe != identity.probeCode) {
+                edit.putBoolean("sibionics_probe_changed_$sensorId", true)
+                    .putString("sibionics_previous_probe_$sensorId", oldProbe)
+            }
+            check(edit.commit())
         } else if (lockedVariant != SibionicsConstants.Variant.SIBIONICS2) {
             prefs(context).edit().remove(PREF_PROBE_CODE_PREFIX + sensorId).apply()
         }
@@ -579,6 +586,51 @@ object SibionicsRegistry {
             remove(PREF_AUTO_RESET_NOT_BEFORE_PREFIX + sensorId)
         }.commit()
 
+    private fun currentProbeStorageId(context: Context, id: String) = findRecord(context, id)?.sensorId ?: id
+    internal fun probeChanged(context: Context, id: String): Boolean =
+        prefs(context).getBoolean("sibionics_probe_changed_$id", false) ||
+            prefs(context).getBoolean("sibionics_probe_changed_${currentProbeStorageId(context, id)}", false)
+    internal fun maintenanceResetAt(context: Context, id: String): Long =
+        maxOf(prefs(context).getLong("sibionics_maintenance_reset_at_$id", 0L),
+            prefs(context).getLong("sibionics_maintenance_reset_at_${currentProbeStorageId(context, id)}", 0L))
+    internal fun markMaintenanceReset(context: Context, id: String) {
+        val at = System.currentTimeMillis()
+        prefs(context).edit().putLong("sibionics_maintenance_reset_at_$id", at)
+            .putLong("sibionics_maintenance_reset_at_${currentProbeStorageId(context, id)}", at).apply()
+    }
+    internal fun archiveProbe(context: Context, id: String, clearProbe: Boolean) {
+        val p = prefs(context)
+        val e = p.edit()
+        val wear = java.util.UUID.randomUUID().toString()
+        val ids = setOf(id, currentProbeStorageId(context, id))
+        for ((k, v) in p.all) if (k.startsWith("sibionics_") && !k.startsWith("sibionics_archive_") && ids.any { k.endsWith("_$it") }) {
+            val dest = "sibionics_archive_${wear}_$k"
+            when (v) {
+                is String -> e.putString(dest, v)
+                is Int -> e.putInt(dest, v)
+                is Long -> e.putLong(dest, v)
+                is Float -> e.putFloat(dest, v)
+                is Boolean -> e.putBoolean(dest, v)
+            }
+        }
+        for (storageId in ids) {
+            if (clearProbe) {
+                e.remove(PREF_PROBE_CODE_PREFIX + storageId)
+                // A manual override belongs to the old physical probe as well.
+            }
+            e.remove(PREF_ALGORITHM_SENSITIVITY_PREFIX + storageId)
+            val previous = p.getString("sibionics_previous_probe_$storageId", null)
+            if (!previous.isNullOrBlank()) e.putString("sibionics_archive_${wear}_${PREF_PROBE_CODE_PREFIX}$storageId", previous)
+            e.putInt(PREF_LAST_INDEX_PREFIX + storageId, 0)
+                .remove(PREF_ALGORITHM_STATE_PREFIX + storageId).remove(PREF_START_TIME_PREFIX + storageId)
+                .remove(PREF_LAST_READING_TIME_PREFIX + storageId).remove(PREF_LAST_GLUCOSE_MGDL_PREFIX + storageId).remove(PREF_LAST_RAW_MGDL_PREFIX + storageId)
+                .remove("sibionics_previous_probe_$storageId")
+            e.remove("sibionics_probe_changed_$storageId").remove("sibionics_maintenance_reset_at_$storageId")
+                .putBoolean("sibionics_new_probe_clock_$storageId", true)
+        }
+        check(e.commit())
+    }
+
     fun clearAlgorithmState(context: Context, sensorId: String) {
         prefs(context).edit().remove(PREF_ALGORITHM_STATE_PREFIX + sensorId).apply()
     }
@@ -766,6 +818,15 @@ object SibionicsRegistry {
         prefs(context).getLong(PREF_START_TIME_PREFIX + sensorId, 0L)
 
     fun saveStartTimeMs(context: Context, sensorId: String, startTimeMs: Long) {
+        val ids = setOf(sensorId, currentProbeStorageId(context, sensorId))
+        if (startTimeMs > 0 && ids.any { prefs(context).getBoolean("sibionics_new_probe_clock_$it", false) }) {
+            val edit = prefs(context).edit()
+            for (id in ids) {
+                tk.glucodata.WearCalibrationBoundary.begin(context, id, startTimeMs)
+                edit.remove("sibionics_new_probe_clock_$id")
+            }
+            check(edit.commit())
+        }
         if (startTimeMs <= 0L) return
         prefs(context).edit().putLong(PREF_START_TIME_PREFIX + sensorId, startTimeMs).apply()
     }

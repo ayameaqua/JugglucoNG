@@ -454,6 +454,10 @@ class AnytimeBleManager(
             applyViewModeToNative(normalized)
         }
 
+    private val wearPolicy = AnytimeWearPolicy()
+    private val liveModelIds = java.util.Collections.synchronizedSet(HashSet<Int>())
+    private var highestLiveIdForWear = -1
+
     // ---- Restore from persistence ----
 
     fun restoreFromPersistence(context: Context) {
@@ -465,13 +469,23 @@ class AnytimeBleManager(
         profile = AnytimeProfileResolver.resolve(cachedDeviceName)
         val k = AnytimeRegistry.loadKValue(context, id)
         val r = AnytimeRegistry.loadRValue(context, id)
+        AnytimeWearStore.session(context, id)
+        qr = null
+        voltageFlag = AnytimeRegistry.loadVoltageFlag(context, id)
         val rawQr = AnytimeRegistry.loadQrContent(context, id)
         if (rawQr.isNotBlank()) {
-            qr = AnytimeAlgorithm.decodeQr(rawQr) ?: qr ?: synthesiseQr(rawQr, k, r)
+            qr = AnytimeAlgorithm.decodeQr(rawQr) ?: synthesiseQr(rawQr, k, r)
         } else if (k > 0f || r > 0f) {
             qr = synthesiseQr("", k, r)
         }
-        qr?.k?.takeIf { it > 0f }?.let { k0 ->
+        val modelPrefs = context.getSharedPreferences("tk.glucodata_preferences", Context.MODE_PRIVATE)
+        val savedK0 = if (modelPrefs.contains("anytime_wear_model_k0_$id")) modelPrefs.getFloat("anytime_wear_model_k0_$id", 0f) else null
+        val compatibleModel = familyEntry.family != AnytimeConstants.Family.CT4 || AnytimeAlgorithm.canRestoreCt4State(qr, savedK0)
+        if (!compatibleModel) {
+            AnytimeAlgorithm.clearCalibratorState(id)
+            AnytimeRegistry.saveCalibratorState(context, id, null)
+        }
+        (if (familyEntry.family == AnytimeConstants.Family.CT4) AnytimeAlgorithm.effectiveModelK0(qr) else qr?.k)?.takeIf { it > 0f && compatibleModel }?.let { k0 ->
             AnytimeRegistry.loadCalibratorState(context, id)?.let { state ->
                 AnytimeAlgorithm.restoreCalibratorState(id, k0, state)
             }
@@ -520,6 +534,16 @@ class AnytimeBleManager(
                 maxFailedSessions = CT5_GAP_MAX_FAILED_SESSIONS,
                 restored = AnytimeCt5GapFailureSnapshot(failure[0], failure[1], failure[2]),
             )
+        }
+        val wearPrefs = context.getSharedPreferences("tk.glucodata_preferences", Context.MODE_PRIVATE)
+        liveModelIds.clear()
+        liveModelIds.addAll(wearPrefs.getStringSet("anytime_wear_live_ids_$id", emptySet()).orEmpty().mapNotNull { it.toIntOrNull() })
+        highestLiveIdForWear = liveModelIds.maxOrNull() ?: persistedLastGlucoseId
+        val backfill = wearPrefs.getString("anytime_wear_backfill_$id", null)?.split('|')
+        if (backfill?.size == 3) {
+            interruptedBackfillReason = backfill[0]
+            interruptedBackfillFromId = backfill[1].toIntOrNull() ?: -1
+            interruptedBackfillStopBeforeId = backfill[2].toIntOrNull() ?: Int.MAX_VALUE
         }
         val rawHistory = AnytimeRegistry.loadRawHistory(context, id)
         val rawMaxId = rawHistory.maxOfOrNull { it.glucoseId } ?: -1
@@ -626,7 +650,7 @@ class AnytimeBleManager(
     private fun synthesiseQr(raw: String, k: Float, r: Float): AnytimeQrCalibration =
         AnytimeQrCalibration(
             rawQr = raw,
-            format = AnytimeQrCalibration.Format.B,
+            format = AnytimeQrCalibration.Format.DEFAULT,
             k = if (k > 0f) k else 0.30f,
             r = if (r > 0f) r else 50f,
             lifeTime = AnytimeConstants.DEFAULT_RATED_LIFETIME_DAYS,
@@ -715,6 +739,9 @@ class AnytimeBleManager(
     private fun persistAlgorithmState() {
         val ctx = Applic.app ?: return
         val id = SerialNumber ?: return
+        ctx.getSharedPreferences("tk.glucodata_preferences", Context.MODE_PRIVATE).edit()
+            .putStringSet("anytime_wear_live_ids_$id", synchronized(liveModelIds) { liveModelIds.map { it.toString() }.toSet() })
+            .apply { if (familyEntry.family == AnytimeConstants.Family.CT4) putFloat("anytime_wear_model_k0_$id", AnytimeAlgorithm.effectiveModelK0(qr)) }.apply()
         qr?.let {
             AnytimeRegistry.saveQrContent(ctx, id, it.rawQr)
             AnytimeRegistry.saveKValue(ctx, id, it.k)
@@ -1151,6 +1178,7 @@ class AnytimeBleManager(
         historyBackfillStartedAfterGlucoseId = lastGlucoseId
         historyEmptyResponsesInARow = 0
         historyLastPulledId = startId - 1
+        persistBackfillCursor()
         historyPullInFlight = false
         handler.postDelayed(historyBackfillRunnable, 250L)
     }
@@ -1162,7 +1190,7 @@ class AnytimeBleManager(
         // prefix, so reconnect resumes at the next id and real gaps are repaired
         // by maybeStartCt5GapRepair / maybeResumePendingCt5Gap.
         if (isCt5()) return nextId
-        val needsNativeHistory = qr?.isFactoryCalibration == true
+        val needsNativeHistory = familyEntry.family == AnytimeConstants.Family.CT4 || qr?.hasAlgorithmCalibration == true
         if (!needsNativeHistory) return nextId
         val firstMissing = firstMissingRawHistoryIdThrough(lastGlucoseId)
         if (firstMissing == null) return nextId
@@ -1303,24 +1331,37 @@ class AnytimeBleManager(
         return glucoseId > startedAfter && glucoseId <= lastGlucoseId
     }
 
-    private fun clearStaleRuntimeStateBeforeLiveRecord(liveId: Int) {
-        val cachedRawMaxId = synchronized(rawAlgorithmWindow) {
+    private fun clearStaleRuntimeStateBeforeLiveRecord(liveId: Int): Boolean {
+        val previousMaxId = maxOf(lastGlucoseId, synchronized(rawAlgorithmWindow) {
             if (rawAlgorithmWindow.isEmpty()) -1 else rawAlgorithmWindow.lastKey()
+        })
+        val now = System.currentTimeMillis()
+        val intervalMs = profile.readingIntervalMinutes * 60_000L
+        when (wearPolicy.observe(liveId, previousMaxId, glucoseTimelineStartAtMs, now, intervalMs)) {
+            AnytimeWearPolicy.Decision.ACCEPT -> return true
+            AnytimeWearPolicy.Decision.QUARANTINE -> return false
+            AnytimeWearPolicy.Decision.NEW_WEAR -> Unit
         }
-        val previousMaxId = maxOf(lastGlucoseId, cachedRawMaxId)
-        if (!liveIdLooksRolledBack(
-                liveId = liveId,
-                previousMaxId = previousMaxId,
-                rollbackThreshold = GLUCOSE_ID_ROLLBACK_RESET_THRESHOLD,
-            )
-        ) {
-            return
-        }
-
+        // Drain old queued imports under their original clock before archiving.
+        flushPendingHistoryRoomImports()
+        val id = SerialNumber ?: return false
+        val ctx = Applic.app ?: return false
+        val newStart = now - liveId.toLong() * intervalMs
+        val keepQr = AnytimeWearStore.matched(ctx, id) &&
+            AnytimeWearStore.qrAt(ctx, id) >= newStart - 5 * 60_000L
+        try { AnytimeWearStore.rollover(ctx, id, keepQr); tk.glucodata.WearCalibrationBoundary.begin(ctx, id, newStart) }
+        catch (t: Exception) { Log.stack(TAG, "wear archive failed; sample quarantined", t); return false }
+        if (!keepQr) { qr = null; voltageFlag = 0; pendingKrPush = false }
+        AnytimeAlgorithm.clearCalibratorState(id)
+        AnytimeAlgorithm.clearNativePortState(id)
+        restoredGlucoseState = false
+        liveModelIds.clear()
+        highestLiveIdForWear = -1
+        packetsSinceInit = 0
         Log.w(
             TAG,
             "Detected Anytime glucose-id rollback liveId=$liveId previousLast=$lastGlucoseId " +
-                    "cachedRawMax=$cachedRawMaxId; clearing session runtime state"
+                    "previousMax=$previousMaxId; starting confirmed wear"
         )
         stopHistoryBackfill()
         interruptedBackfillReason = ""
@@ -1354,6 +1395,7 @@ class AnytimeBleManager(
         lastAlgorithmCalibrationStatus = AnytimeCalibrationPolicy.CALIBRATION_STATUS_UNKNOWN
         lastAlgorithmResult = null
         persistAlgorithmState()
+        return true
     }
 
     private fun clearRuntimeStateForCt5EndCycle() {
@@ -1467,8 +1509,28 @@ class AnytimeBleManager(
             )
         }
 
+        if (familyEntry.family == AnytimeConstants.Family.CT4) {
+            val raw = synchronized(rawAlgorithmWindow) { rawAlgorithmWindow.values.toList() }
+            for (result in AnytimeAlgorithm.replayCt4History(raw, qr, familyEntry)) {
+                if (result.glucoseId in liveModelIds) continue
+                val sampleMs = anytimeTimelineSampleMs(glucoseTimelineStartAtMs, result.glucoseId,
+                    profile.readingIntervalMinutes * 60_000L, 0L)
+                commitReading(result, sampleMs, Applic.app, live = false, history = true)
+            }
+            flushPendingHistoryRoomImports()
+        }
+        persistBackfillCursor(completed = true)
         maybeStartPendingFreshOlderBackfill()
     }
+    private fun persistBackfillCursor(completed: Boolean = false) {
+        val ctx = Applic.app ?: return
+        val id = SerialNumber ?: return
+        val e = ctx.getSharedPreferences("tk.glucodata_preferences", Context.MODE_PRIVATE).edit()
+        if (completed) e.remove("anytime_wear_backfill_$id")
+        else if (historyBackfillActive) e.putString("anytime_wear_backfill_$id", "$historyBackfillReason|${(historyLastPulledId + 1).coerceAtLeast(0)}|$historyStopBeforeId")
+        e.apply()
+    }
+
     private fun rememberInterruptedBackfill() {
         if (!historyBackfillActive) return
         val next = nextBackfillIdSkippingCached((historyLastPulledId + 1).coerceAtLeast(0))
@@ -2875,7 +2937,7 @@ class AnytimeBleManager(
                 AnytimeConstants.Family.CT4,
             ) -> {
                 if (familyEntry.family == AnytimeConstants.Family.CT4 && qr == null) {
-                    Log.w(TAG, "CT4 QR calibration is missing; continuing BLE handshake but glucose computation may stay unavailable")
+                    Log.w(TAG, "CT4 QR calibration is missing; continuing BLE handshake with MK4 default K0=1.13")
                 }
                 if (isCt4VoltageOne()) {
                     Log.i(TAG, "CT4 voltage mode 1 — skipping formal voltage switch and sending check")
@@ -3007,6 +3069,7 @@ class AnytimeBleManager(
         handleCharacteristicChanged(characteristic, value)
     }
 
+    @Synchronized
     private fun handleCharacteristicChanged(
         characteristic: BluetoothGattCharacteristic,
         data: ByteArray,
@@ -3654,16 +3717,7 @@ class AnytimeBleManager(
     // ---- Glucose pipeline ----
 
     private fun handleGlucoseFrame(data: ByteArray, push: Boolean) {
-        if (phase == Phase.HANDSHAKING && push) {
-            val records = AnytimeFrames.parseRawRecords(data, usesWideRawRecords())
-            val firstLiveId = records.maxOfOrNull { it.glucoseId }
-            if (firstLiveId != null) {
-                val intervalMs = profile.readingIntervalMinutes * 60L * 1000L
-                clearStaleRuntimeStateBeforeLiveRecord(firstLiveId)
-                updateTimelineFromLiveGlucoseId(firstLiveId, System.currentTimeMillis(), intervalMs)
-            }
-            enterStreaming("Raw glucose during handshake")
-        }
+        if (phase == Phase.HANDSHAKING && push) enterStreaming("Raw glucose during handshake")
         handleRawGlucose(data, push)
     }
 
@@ -3705,9 +3759,16 @@ class AnytimeBleManager(
         processRawRecords(listOf(frame.record), push)
     }
 
-    private fun processRawRecords(records: List<AnytimeRawRecord>, push: Boolean) {
+    private fun processRawRecords(incomingRecords: List<AnytimeRawRecord>, push: Boolean) {
         val context = Applic.app
         val intervalMs = profile.readingIntervalMinutes * 60L * 1000L
+        // A response from a request made before rollover can still arrive. It
+        // cannot import ids beyond the current wear's proven live clock.
+        val records = if (!push && highestLiveIdForWear >= 0) incomingRecords.filter { it.glucoseId <= highestLiveIdForWear + 1 } else incomingRecords
+        if (!push && incomingRecords.isNotEmpty() && records.isEmpty()) {
+            Log.w(TAG, "Ignoring history response beyond this wear's proven live id")
+            return
+        }
         if (records.isEmpty()) {
             // Empty pull response — transmitter has nothing more to give.
             Log.d(TAG, "Empty raw frame (pull caught-up)")
@@ -3744,16 +3805,27 @@ class AnytimeBleManager(
         val anchorId = records.maxOfOrNull { it.glucoseId } ?: -1
         val anchorMs = if (push && anchorId >= 0) now else 0L
         if (push && anchorId >= 0) {
-            clearStaleRuntimeStateBeforeLiveRecord(anchorId)
+            if (!clearStaleRuntimeStateBeforeLiveRecord(anchorId)) return
         }
         if (anchorId >= 0) {
             clearCaughtUpCooldownIfNewerData(anchorId)
         }
         if (push && anchorMs > 0L && anchorId >= 0) {
             updateTimelineFromLiveGlucoseId(anchorId, anchorMs, intervalMs)
+            highestLiveIdForWear = maxOf(highestLiveIdForWear, anchorId)
             maybeStartFreshPostLiveBackfill(anchorId)
         }
-        for (rec in records) {
+        // Store the whole batch before ordered history replay; live frames are also
+        // processed ascending. Old/duplicate pushes never advance either model.
+        for (rec in records) synchronized(rawAlgorithmWindow) { rawAlgorithmWindow[rec.glucoseId] = rec }
+        val historyModelResults = if (!push && familyEntry.family == AnytimeConstants.Family.CT4)
+            AnytimeAlgorithm.replayCt4AvailableHistory(synchronized(rawAlgorithmWindow) { rawAlgorithmWindow.values.toList() }, qr, familyEntry)
+        else emptyMap()
+        for (rec in records.sortedBy { it.glucoseId }) {
+            if (push && rec.glucoseId <= lastGlucoseId) continue
+            // Raw inputs remain available for replay, but a history pull must
+            // not replace a value already emitted by this wear's live filter.
+            if (!push && familyEntry.family == AnytimeConstants.Family.CT4 && rec.glucoseId in liveModelIds) continue
             synchronized(rawAlgorithmWindow) {
                 rawAlgorithmWindow[rec.glucoseId] = rec
             }
@@ -3766,6 +3838,7 @@ class AnytimeBleManager(
                 synchronized(pendingNativeRecomputeIds) { pendingNativeRecomputeIds.remove(rec.glucoseId) }
                 continue
             }
+            if (push) liveModelIds.add(rec.glucoseId)
             packetsSinceInit++
             lastIwNa = rec.iwNa
             lastIbNa = rec.ibNa
@@ -3776,7 +3849,7 @@ class AnytimeBleManager(
                 intervalMs = intervalMs,
                 fallbackMs = now - rec.indexInPacket * intervalMs,
             )
-            val result = AnytimeAlgorithm.compute(
+            val result = historyModelResults[rec.glucoseId] ?: AnytimeAlgorithm.compute(
                 record = rec,
                 qr = qr,
                 family = familyEntry,
@@ -3814,6 +3887,7 @@ class AnytimeBleManager(
         }
         flushPendingHistoryRoomImports()
         persistAlgorithmState()
+        persistBackfillCursor()
         armNoDataWatchdog()
         armPullFallback()
         // Chain the backfill loop: if this was a non-empty pull response, keep
@@ -3931,7 +4005,7 @@ class AnytimeBleManager(
         }
         val intervalMs = profile.readingIntervalMinutes * 60L * 1000L
         val now = System.currentTimeMillis()
-        clearStaleRuntimeStateBeforeLiveRecord(rec.glucoseId)
+        if (!clearStaleRuntimeStateBeforeLiveRecord(rec.glucoseId)) return
         updateTimelineFromLiveGlucoseId(rec.glucoseId, now, intervalMs)
         maybeStartFreshPostLiveBackfill(rec.glucoseId)
         val sampleMs = if (glucoseTimelineStartAtMs > 0L) {
@@ -4000,7 +4074,7 @@ class AnytimeBleManager(
             lastPolarisationMv = Triple(record.beVoltageMv, record.weVoltageMv, record.reVoltageMv)
         }
 
-        clearStaleRuntimeStateBeforeLiveRecord(record.glucoseId)
+        if (!clearStaleRuntimeStateBeforeLiveRecord(record.glucoseId)) return
         // Anchor the timeline from every live id, warm-up included — waiting for
         // the first glucose would leave a fresh sensor without a start time for
         // three quarters of an hour.
@@ -5043,20 +5117,73 @@ class AnytimeBleManager(
 
     // ---- AnytimeDriver implementation ----
 
+    internal fun currentQrHash(): String? = qr?.rawQr?.let { AnytimeWearStore.hash(it) }
+
+    override fun getProbeAlgorithmStatus(): String {
+        val ctx = Applic.app ?: return "尚无运行状态"
+        val id = SerialNumber ?: return "尚无探头身份"
+        val q = qr
+        val matched = AnytimeWearStore.matched(ctx, id)
+        val type = when {
+            q == null || q.format == AnytimeQrCalibration.Format.DEFAULT -> "默认／旧版未验证参数"
+            q.isFactoryCalibration -> "工厂校准"
+            q.format == AnytimeQrCalibration.Format.MANUAL -> "手动"
+            else -> "UDI 包装元数据"
+        }
+        val state = AnytimeAlgorithm.snapshotCalibratorState(id)
+        val source = lastAlgorithmResult?.source?.name ?: "等待本周期采样"
+        val fmt = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss XXX", java.util.Locale.getDefault())
+        fun time(ms: Long) = if (ms > 0) fmt.format(java.util.Date(ms)) else "未确定"
+        return "周期：${AnytimeWearStore.session(ctx, id).take(8)} · ${time(glucoseTimelineStartAtMs)}\n" +
+            "二维码：${if (q != null) "存在" else "未录入"} · $type\n" +
+            "归属：${if (matched) "用户明确指定当前探头" else "未确认；不表示工厂匹配"}\n" +
+            "录入：${time(AnytimeWearStore.qrAt(ctx, id))} · 标识：${currentQrHash() ?: "—"}\n" +
+            "算法：$source · ${if (state != null) "本周期滤波器已初始化，ID=${state.lastGlucoseId}" else "尚未初始化／等待采样"}\n" +
+            (if (familyEntry.family == AnytimeConstants.Family.CT4)
+                "K0：${AnytimeAlgorithm.effectiveModelK0(q)} (${if (q?.hasAlgorithmCalibration == true) type else "MK4 默认"})；Raw R：${q?.takeIf { it.hasAlgorithmCalibration }?.r ?: 50f} (${if (q?.hasAlgorithmCalibration == true) type else "默认"})\n"
+             else "K：${q?.takeIf { it.hasAlgorithmCalibration }?.k ?: .30f} · R：${q?.takeIf { it.hasAlgorithmCalibration }?.r ?: 50f}\n") +
+            "电压模式：$voltageFlag (${if (q != null) type else "默认"})\n" +
+            if (q?.hasAlgorithmCalibration != true) "正在使用默认计算参数" else if (!matched) "旧版参数归属未确认，请核对当前探头" else "二维码参数已进入当前计算配置；运行值以本周期采样为准"
+    }
+
     override fun setQrCalibration(rawQr: String): Boolean {
         val parsed = AnytimeAlgorithm.decodeQr(rawQr) ?: run {
-            Log.w(TAG, "QR decode failed: $rawQr")
+            Log.w(TAG, "QR decode failed (content omitted)")
             return false
         }
+        // Validated before touching persistence. Apply on the driver's handler,
+        // where history jobs/control writes are scheduled as well.
+        handler.post {
+            try { applyQrCalibration(parsed) }
+            catch (ex: Exception) { Log.stack(TAG, "QR update failed; verify runtime probe status", ex); UiRefreshBus.requestStatusRefresh() }
+        }
+        return true
+    }
+
+    @Synchronized
+    private fun applyQrCalibration(parsed: AnytimeQrCalibration) {
+        val id = SerialNumber ?: return
+        val ctx = Applic.app ?: return
+        if (qr?.rawQr == parsed.rawQr) {
+            // Explicitly confirm ownership without restarting an unchanged live filter.
+            AnytimeWearStore.bindQr(ctx, id, parsed.rawQr, glucoseTimelineStartAtMs)
+            UiRefreshBus.requestStatusRefresh()
+            return
+        }
+        persistAlgorithmState()
+        AnytimeWearStore.bindQr(ctx, id, parsed.rawQr, glucoseTimelineStartAtMs)
         qr = parsed
         voltageFlag = parsed.voltageFlag
+        AnytimeAlgorithm.clearCalibratorState(id)
+        AnytimeAlgorithm.clearNativePortState(id)
+        lastAlgorithmResult = null
         persistAlgorithmState()
         // If actively streaming, push K/R now; otherwise queue for next init.
         // GS1/UDI package labels do not contain factory K/R, so they must not
         // be sent to the transmitter as calibration coefficients.
-        if (!parsed.isFactoryCalibration) {
+        if (!parsed.hasAlgorithmCalibration) {
             pendingKrPush = false
-            Log.i(TAG, "QR is product/UDI metadata only; using linear fallback defaults without inputKR")
+            Log.i(TAG, "QR is product/UDI metadata only; using default algorithm parameters without inputKR")
         } else if (phase == Phase.STREAMING) {
             if (isCt5() && ct5CipherKey !in 0..255) {
                 pendingKrPush = true
@@ -5067,7 +5194,7 @@ class AnytimeBleManager(
         } else {
             pendingKrPush = true
         }
-        return true
+        UiRefreshBus.requestStatusRefresh()
     }
 
     override fun pushReferenceBg(mgdl: Int): Boolean {
@@ -5690,7 +5817,7 @@ class AnytimeBleManager(
                     "Iw=${"%.2f".format(r.iwNa)} nA · Ib=${"%.2f".format(r.ibNa)} nA · T=${"%.1f".format(r.temperatureC)}°C"
         }
         if (r.source == AnytimeAlgorithm.Source.MODEL) {
-            return "Reference App model (no native .so) · K0=${qr?.k ?: 0f} R=${qr?.r ?: 0f}\n" +
+            return "Reference App model (no native .so) · K0=${AnytimeAlgorithm.effectiveModelK0(qr)} · R/voltage: raw lane only\n" +
                     "Iw=${"%.2f".format(r.iwNa)} nA · Ib=${"%.2f".format(r.ibNa)} nA · T=${"%.1f".format(r.temperatureC)}°C"
         }
         if (r.source == AnytimeAlgorithm.Source.NATIVE_PORT) {

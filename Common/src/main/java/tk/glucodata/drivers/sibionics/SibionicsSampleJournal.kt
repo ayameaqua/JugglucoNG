@@ -103,6 +103,15 @@ internal class SibionicsSampleJournal(
     }
 
     @Synchronized
+    fun archiveBeforeRestart() {
+        if (file.exists()) {
+            val archive = File(file.parentFile, "${file.name}.wear-${System.currentTimeMillis()}-${java.util.UUID.randomUUID()}")
+            check(file.renameTo(archive)) { "Cannot archive previous probe journal" }
+        }
+        clear()
+    }
+
+    @Synchronized
     fun clear() {
         samples.clear()
         recordCount = 0

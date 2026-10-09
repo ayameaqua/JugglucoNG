@@ -12,7 +12,7 @@
 //     for CT2. Stateful and per-sensor: see `calibratorFor`/`restoreCalibratorState`.
 //     Only advanced from the live path (`advanceModelFallback = true`);
 //     history/backfill records are not guaranteed ascending (recent-tail-first
-//     backfill can revisit older ids after newer ones), so backfill uses LINEAR.
+//     backfill can revisit older ids after newer ones), so CT4 backfill replays an independent, ordered MODEL.
 //
 //  3. LINEAR: Pure-Kotlin raw display lane. It is not a replacement for the
 //     algorithm and stays separate from the Auto lane; Auto+Raw modes must never
@@ -65,6 +65,7 @@ object AnytimeAlgorithm {
     @JvmStatic
     fun clearCalibratorState(persistentSensorId: String) {
         calibrators.remove(persistentSensorId)
+        historyModels.remove(persistentSensorId)
     }
 
     // ---- CT3 native-port state (the vendored CT3 chain, pure Kotlin) ----
@@ -180,6 +181,7 @@ object AnytimeAlgorithm {
         val ceVoltageMv: Int = Int.MIN_VALUE,
         val bVoltageMv: Int = Int.MIN_VALUE,
         /** Official native calibration status; -1 when the native path did not report it. */
+        val historyCompletePrefix: Boolean = false,
         val calibrationStatus: Int = AnytimeCalibrationPolicy.CALIBRATION_STATUS_UNKNOWN,
     ) {
         val mgdl: Float get() = mgdlTimes10 / 10f
@@ -228,16 +230,23 @@ object AnytimeAlgorithm {
          */
         advanceModelFallback: Boolean = false,
     ): Result {
-        val k = qr?.k ?: 0f
-        val r = qr?.r ?: 0f
+        val k = qr?.takeIf { it.hasAlgorithmCalibration }?.k ?: 0f
+        val r = qr?.takeIf { it.hasAlgorithmCalibration }?.r ?: 0f
         val voltageFlag = qr?.voltageFlag ?: 0
         val linear = computeLinear(record, k, r, family, voltageFlag)
-        val calibration = qr?.takeIf { it.isFactoryCalibration }
+        val calibration = qr?.takeIf { it.hasAlgorithmCalibration }
         if (family.family == AnytimeConstants.Family.CT2) {
             return computeCt14(record, sampleTimeMs, sensorStartTimeMs)
         }
         if (family.family == AnytimeConstants.Family.CT4) {
-            return computeModel(record, k, persistentSensorId, linear.rawMgdl)
+            val k0 = if (k > 0f) k else AnytimeConstants.CT4_DEFAULT_K0
+            val lastLive = snapshotCalibratorState(persistentSensorId)?.lastGlucoseId ?: -1
+            return if (advanceModelFallback && record.glucoseId > lastLive) {
+                computeModel(record, k0, persistentSensorId, linear.rawMgdl)
+            } else {
+                computeHistoryModel(record, k0, persistentSensorId,
+                    recentRecordsProvider?.invoke() ?: recentRecords, family, qr)
+            }
         }
         // No vendor `libalgorithm-jni.so` path: CT2 (empirical), CT4 (MK4) and CT5
         // (transmitter-computed + learned scale) are pure Kotlin, and CT3 runs the
@@ -285,24 +294,82 @@ object AnytimeAlgorithm {
         // reference K0 (1.13); 0 would divide by zero in AnytimeCalibrator.
         val effectiveK0 = if (k0 > 0f) k0 else AnytimeConstants.CT4_DEFAULT_K0
         val calibrator = calibratorFor(persistentSensorId, effectiveK0)
-        val filteredMmol = calibrator.computeNext(record)
-        val mmol = filteredMmol.coerceAtLeast(AnytimeConstants.ALGO_MMOL_FLOOR.toFloat())
-        val mgdlTimes10 = (mmol * 18.0f * 10f + 0.5f).toInt()
-            .coerceIn(AnytimeConstants.ALGO_MGDL_MIN_TIMES10, AnytimeConstants.ALGO_MGDL_MAX_TIMES10)
-        return Result(
-            glucoseId = record.glucoseId,
-            mmol = mmol,
-            mgdlTimes10 = mgdlTimes10,
-            ibNa = record.ibNa,
-            iwNa = record.iwNa,
-            temperatureC = record.temperatureC,
-            trend = 6, // TREND_NONE — model path doesn't compute trend, same as linear
-            errorCode = 0,
-            warnCode = 0,
-            source = Source.MODEL,
-            rawMgdl = rawMgdl,
-        )
+        return modelResult(record, calibrator.computeNext(record), rawMgdl)
     }
+
+    private fun modelResult(record: AnytimeRawRecord, filteredMmol: Float, rawMgdl: Float): Result {
+        val mmol = filteredMmol.coerceAtLeast(AnytimeConstants.ALGO_MMOL_FLOOR.toFloat())
+        return Result(glucoseId = record.glucoseId, mmol = mmol,
+            mgdlTimes10 = (mmol * 180f + .5f).toInt().coerceIn(
+                AnytimeConstants.ALGO_MGDL_MIN_TIMES10, AnytimeConstants.ALGO_MGDL_MAX_TIMES10),
+            ibNa = record.ibNa, iwNa = record.iwNa, temperatureC = record.temperatureC,
+            trend = 6, errorCode = 0, warnCode = 0, source = Source.MODEL, rawMgdl = rawMgdl)
+    }
+
+    private class HistoryModel(val k0: Float) {
+        var inputs: List<AnytimeRawRecord> = emptyList()
+        val outputs = HashMap<Int, Result>()
+        var model = AnytimeCalibrator(k0)
+    }
+    private val historyModels = java.util.concurrent.ConcurrentHashMap<String, HistoryModel>()
+
+    /** Ordered replay with an independent filter. Never reads/writes the live filter. */
+    private fun computeHistoryModel(record: AnytimeRawRecord, k0: Float, id: String,
+        records: List<AnytimeRawRecord>, family: AnytimeConstants.FamilyEntry, qr: AnytimeQrCalibration?): Result {
+        val pool = historyModels.compute(id) { _, old -> old?.takeIf { it.k0 == k0 } ?: HistoryModel(k0) }!!
+        synchronized(pool) {
+            val prefix = (records + record).associateBy { it.glucoseId }.values
+                .filter { it.glucoseId <= record.glucoseId }.sortedBy { it.glucoseId }
+            val reusable = pool.inputs.take(prefix.size) == prefix || prefix.take(pool.inputs.size) == pool.inputs
+            if (!reusable) { pool.inputs = emptyList(); pool.outputs.clear(); pool.model = AnytimeCalibrator(k0) }
+            if (prefix.size > pool.inputs.size) {
+                for (item in prefix.drop(pool.inputs.size)) {
+                    val raw = computeLinear(item, qr?.takeIf { it.hasAlgorithmCalibration }?.k ?: 0f,
+                        qr?.takeIf { it.hasAlgorithmCalibration }?.r ?: 0f, family, qr?.voltageFlag ?: 0).rawMgdl
+                    pool.outputs[item.glucoseId] = modelResult(item, pool.model.computeNext(item), raw)
+                }
+                pool.inputs = prefix
+            }
+            val complete = prefix.firstOrNull()?.glucoseId == 0 && prefix.zipWithNext().all { (a, b) -> b.glucoseId == a.glucoseId + 1 }
+            return pool.outputs.getValue(record.glucoseId).copy(historyCompletePrefix = complete)
+        }
+    }
+
+    internal fun replayCt4History(records: List<AnytimeRawRecord>, qr: AnytimeQrCalibration?, family: AnytimeConstants.FamilyEntry): List<Result> {
+        val ordered = records.sortedBy { it.glucoseId }
+        if (ordered.firstOrNull()?.glucoseId != 0 || ordered.zipWithNext().any { (a,b) -> b.glucoseId != a.glucoseId + 1 }) return emptyList()
+        val model = AnytimeCalibrator(effectiveModelK0(qr))
+        return ordered.map { record ->
+            val raw = computeLinear(record, qr?.takeIf { it.hasAlgorithmCalibration }?.k ?: 0f,
+                qr?.takeIf { it.hasAlgorithmCalibration }?.r ?: 0f, family, qr?.voltageFlag ?: 0).rawMgdl
+            modelResult(record, model.computeNext(record), raw).copy(historyCompletePrefix = true)
+        }
+    }
+
+    /** One linear pass per BLE page, including sparse tails, with no live state. */
+    internal fun replayCt4AvailableHistory(records: List<AnytimeRawRecord>, qr: AnytimeQrCalibration?, family: AnytimeConstants.FamilyEntry): Map<Int, Result> {
+        val ordered = records.associateBy { it.glucoseId }.values.sortedBy { it.glucoseId }
+        val k0 = effectiveModelK0(qr)
+        var model = AnytimeCalibrator(k0)
+        var previous = -1
+        var complete = ordered.firstOrNull()?.glucoseId == 0
+        return buildMap {
+            for (record in ordered) {
+                if (previous >= 0 && record.glucoseId != previous + 1) { model = AnytimeCalibrator(k0); complete = false }
+                val raw = computeLinear(record, qr?.takeIf { it.hasAlgorithmCalibration }?.k ?: 0f,
+                    qr?.takeIf { it.hasAlgorithmCalibration }?.r ?: 0f, family, qr?.voltageFlag ?: 0).rawMgdl
+                put(record.glucoseId, modelResult(record, model.computeNext(record), raw).copy(historyCompletePrefix = complete))
+                previous = record.glucoseId
+            }
+        }
+    }
+
+    internal fun effectiveModelK0(qr: AnytimeQrCalibration?): Float =
+        qr?.takeIf { it.hasAlgorithmCalibration }?.k ?: AnytimeConstants.CT4_DEFAULT_K0
+
+    internal fun canRestoreCt4State(qr: AnytimeQrCalibration?, savedK0: Float?): Boolean =
+        if (savedK0 != null) savedK0 == effectiveModelK0(qr)
+        else qr == null || qr.hasAlgorithmCalibration
 
     /** Linear K/R fallback. */
     @JvmStatic

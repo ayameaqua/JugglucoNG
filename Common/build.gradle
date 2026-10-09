@@ -23,6 +23,13 @@ ext {
     GMSWEAR      = '20.0.1'
 }
 
+// Samsung distributes this SDK under a separate licence. Never fetch, vendor or publish it.
+def samsungHealthEnabled = providers.gradleProperty('samsungHealthEnabled').orElse('false').get().toBoolean()
+def samsungHealthSdkPath = providers.gradleProperty('samsungHealthSdkPath').orElse('').get()
+if (samsungHealthEnabled && (!samsungHealthSdkPath || !file(samsungHealthSdkPath).isFile())) {
+    throw new GradleException('Personal Samsung build requires -PsamsungHealthSdkPath=/absolute/path/to/official-sdk.aar')
+}
+
 android {
     buildFeatures.buildConfig = true
     buildFeatures.resValues = true
@@ -128,6 +135,7 @@ android {
 
     productFlavors {
         mobile {
+            if (samsungHealthEnabled) minSdk = 29
             dimension = 'wearos'
             versionNameSuffix = '-phone'
             buildConfigField 'int', 'isWear', '0'
@@ -313,6 +321,8 @@ android {
         // gets one manifest.
         mobile {
             java.srcDirs += ['src/mobileSi/java', 'src/mobileSiGoogle/java']
+            java.srcDirs += [samsungHealthEnabled ? 'src/mobileSamsung/java' : 'src/mobileNoSamsung/java']
+            kotlin.srcDirs += [samsungHealthEnabled ? 'src/mobileSamsung/java' : 'src/mobileNoSamsung/java']
             res.srcDirs += ['src/mobileSi/res']
         }
         wear {
@@ -402,6 +412,12 @@ dependencies {
 
     // ---- mobile ----
     mobileImplementation 'com.google.android.material:material:1.14.0'
+    mobileImplementation 'com.google.code.gson:gson:2.10.1'
+    if (samsungHealthEnabled) {
+        mobileImplementation files(samsungHealthSdkPath)
+        // The local Samsung AAR has no POM and uses Parceler in its public DTOs.
+        mobileImplementation 'org.jetbrains.kotlin:kotlin-parcelize-runtime:2.4.10'
+    }
     mobileImplementation 'androidx.health.connect:connect-client:1.1.0'
     mobileImplementation 'com.garmin.connectiq:ciq-companion-app-sdk:2.4.0@aar'
 

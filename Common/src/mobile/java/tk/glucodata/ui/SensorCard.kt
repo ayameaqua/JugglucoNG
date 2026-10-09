@@ -3000,6 +3000,7 @@ fun SensorCard(
             }
 
             if (sensor.isAnytime) {
+                AnytimeProbeStatus(sensor.serial, viewModel)
                 val hasExportableCredentials = tk.glucodata.drivers.anytime.AnytimeRegistry
                     .exportCt5Credentials(context, sensor.serial) != null
                 FlowRow(

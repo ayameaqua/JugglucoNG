@@ -110,3 +110,7 @@
 # reference. Both also carry @Keep at their declaration; keep the two in sync.
 -keep class tk.glucodata.update.AppUpdateCheckWorker { public <init>(...); }
 -keep class tk.glucodata.update.AppUpdateInstallReceiver { public <init>(...); }
+
+# Optional personal Samsung adapter serializes public DTO getters/field descriptors.
+-keep class com.samsung.android.sdk.health.data.** { *; }
+-keep class tk.glucodata.healthinsights.JsonValue { *; }

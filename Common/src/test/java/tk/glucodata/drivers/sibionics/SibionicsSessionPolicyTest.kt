@@ -421,6 +421,8 @@ class SibionicsSessionPolicyTest {
         // A sensor that ignored the reset serves its old idx=1 and on.
         val oldPage = (1..1000).map { sample(it, oldStart + it * minute) }
         assertNull(restartedAt(oldPage, nowMs = now + 2 * minute))
+        assertNull(restartedAt(listOf(sample(1, oldStart + minute, live = true))))
+        assertNull(restartedAt(listOf(sample(1, now + 3 * 60 * minute, live = true))))
     }
 
     @Test

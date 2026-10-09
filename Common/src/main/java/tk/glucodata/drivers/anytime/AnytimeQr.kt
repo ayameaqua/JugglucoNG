@@ -69,7 +69,10 @@ data class AnytimeQrCalibration(
     enum class Format { A, B, C, D, MANUAL, UDI, DEFAULT }
 
     val isFactoryCalibration: Boolean
-        get() = format != Format.UDI && format != Format.DEFAULT && k > 0f && r > 0f
+        get() = format in setOf(Format.A, Format.B, Format.C, Format.D) && k > 0f && r > 0f
+
+    val hasAlgorithmCalibration: Boolean
+        get() = (isFactoryCalibration || format == Format.MANUAL) && k > 0f && r > 0f
 
     /** K/R that may be written to a transmitter: a factory code or the CT5 default, never a UDI label. */
     val hasTransmitterKr: Boolean

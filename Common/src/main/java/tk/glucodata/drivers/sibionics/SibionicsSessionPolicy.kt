@@ -1,6 +1,12 @@
 package tk.glucodata.drivers.sibionics
 
 internal object SibionicsSessionPolicy {
+    internal fun probeIdentityChanged(previous: String?, scanned: String?): Boolean =
+        !scanned.isNullOrBlank() && scanned != previous
+
+    internal fun shouldInvalidateProbe(newQr: Boolean, maintenanceSentAt: Long, restartedAt: Long): Boolean =
+        newQr || maintenanceSentAt <= 0L || restartedAt <= 0L || kotlin.math.abs(restartedAt - maintenanceSentAt) > 10 * 60_000L
+
     /** One incoming sample, as far as session identity is concerned. */
     data class SessionSample(val index: Int, val eventMs: Long, val live: Boolean)
 
@@ -57,7 +63,13 @@ internal object SibionicsSessionPolicy {
         for (sample in samples.sortedBy { it.index }) {
             if (sample.index < 0) continue
             if (isConfirmedIndexRestart(sample.index, knownCursor, sample.live, isRehydrating)) {
-                return if (sample.eventMs > 0L) impliedStartMs(sample.index, sample.eventMs) else nowMs
+                // Live-marked packets can be duplicated or delayed. A valid old
+                // timestamp must not erase the current probe merely because idx=1.
+                if (sample.eventMs <= 0L) return nowMs
+                val implied = impliedStartMs(sample.index, sample.eventMs)
+                if (implied > nowMs + MAX_FUTURE_START_MS || implied < MIN_REASONABLE_START_MS) continue
+                if (knownStartMs > 0L && implied - knownStartMs < MIN_SESSION_SHIFT_MS) continue
+                return implied
             }
             if (sample.eventMs <= 0L || knownStartMs <= 0L || knownCursor <= 1) continue
             if (sample.index >= knownCursor) continue
