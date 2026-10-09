@@ -3812,7 +3812,8 @@ class AnytimeBleManager(
         val intervalMs = profile.readingIntervalMinutes * 60L * 1000L
         // A response from a request made before rollover can still arrive. It
         // cannot import ids beyond the current wear's proven live clock.
-        if (!push && wearPolicy.hasPendingRollover()) return
+        if (!push && (wearPolicy.hasPendingRollover() ||
+                (manualHistoryRewrite?.active == true && !rawLiveObservedThisConnection))) return
         val records = if (!push && highestLiveIdForWear >= 0) incomingRecords.filter { it.glucoseId <= highestLiveIdForWear + 1 } else incomingRecords
         if (!push && incomingRecords.isNotEmpty() && records.isEmpty()) {
             Log.w(TAG, "Ignoring history response beyond this wear's proven live id")
@@ -5725,8 +5726,9 @@ class AnytimeBleManager(
     private fun validManualHistoryRewrite(): AnytimeManualHistoryRewrite? {
         val ctx = Applic.app ?: return null
         val id = SerialNumber ?: return null
-        return manualHistoryRewrite?.takeIf { it.active &&
-            it.matches(AnytimeWearStore.session(ctx, id), qr?.rawQr, glucoseTimelineStartAtMs) }
+        return manualHistoryRewrite?.takeIf {
+            it.canUse(AnytimeWearStore.session(ctx, id), qr?.rawQr, glucoseTimelineStartAtMs,
+                rawLiveObservedThisConnection, wearPolicy.hasPendingRollover()) }
     }
 
     private fun persistManualHistoryRewrite() {

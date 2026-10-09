@@ -45,6 +45,16 @@ class AnytimeManualHistoryRewriteTest {
         assertFalse(AnytimeManualHistoryRewrite.requiresFreshRead("post-reset(reconnect)"))
     }
 
+    @Test fun restoredConsentRequiresCurrentConnectionLiveProofAndNoProbeRollback() {
+        val task = AnytimeManualHistoryRewrite.restore(task().apply { receive(300) }.json())!!
+        assertFalse(task.canUse("wear-a", "current-qr", task.timelineStartMs, false, false))
+        assertFalse(task.canUse("wear-a", "current-qr", task.timelineStartMs, true, true))
+        assertFalse(task.canUse("wear-b", "current-qr", task.timelineStartMs, true, false))
+        assertTrue(task.canUse("wear-a", "current-qr", task.timelineStartMs, true, false))
+        task.finish()
+        assertFalse(task.canUse("wear-a", "current-qr", task.timelineStartMs, true, false))
+    }
+
     @Test fun newParametersReplaceSamePriorityWithoutWeakeningAutomaticProtection() {
         val record = raw(500)
         val old = AnytimeAlgorithm.replayCt4History((0..500).map(::raw), null, family).last()

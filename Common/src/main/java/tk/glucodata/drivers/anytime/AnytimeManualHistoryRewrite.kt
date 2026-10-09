@@ -20,6 +20,8 @@ internal class AnytimeManualHistoryRewrite(
 
     fun matches(wear: String, qr: String?, timeline: Long) =
         wearId == wear && qrRaw == qr && timelineStartMs == timeline
+    fun canUse(wear: String, qr: String?, timeline: Long, connectionHasLiveRecord: Boolean, pendingRollover: Boolean) =
+        active && connectionHasLiveRecord && !pendingRollover && matches(wear, qr, timeline)
     @Synchronized fun receive(id: Int) { if (active && id in 0 until stopBeforeId) received.set(id) }
     @Synchronized fun canReplace(id: Int, completePrefix: Boolean) =
         active && completePrefix && id in 0 until stopBeforeId && received[id]
