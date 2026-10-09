@@ -1,6 +1,8 @@
 package tk.glucodata.ui
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -25,7 +27,7 @@ internal fun AnytimeProbeStatus(serial: String, model: SensorViewModel) {
         }
     }
     if (editing) AlertDialog(onDismissRequest = { editing = false }, title = { Text("当前探头二维码") }, text = {
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("请确认这是当前正在佩戴的探头。更新会重建本地计算器；已有血糖历史会保留。UDI 包装码只提供元数据。")
             InlineQrScannerCard(Modifier.height(200.dp), onScanResult = {
                 if (tk.glucodata.drivers.anytime.AnytimeAlgorithm.decodeQr(it) == null) false

@@ -6,7 +6,9 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
@@ -47,6 +49,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -70,6 +73,7 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import tk.glucodata.R
+import kotlinx.coroutines.launch
 
 private fun Context.hasCameraPermission(): Boolean {
     return ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
@@ -97,6 +101,7 @@ fun InlineQrScannerCard(
     onScanResult: (String) -> Boolean,
     onManualFallback: (() -> Unit)? = null,
     manualFallbackLabel: String? = null,
+    showGalleryPicker: Boolean = true,
     onTouchInteractionChanged: ((Boolean) -> Unit)? = null
 ) {
     val context = LocalContext.current
@@ -104,6 +109,10 @@ fun InlineQrScannerCard(
     val mainExecutor = remember(context) { ContextCompat.getMainExecutor(context) }
     val analyzerExecutor = remember { Executors.newSingleThreadExecutor() }
     val bindingGeneration = remember { AtomicInteger(0) }
+    val scope = rememberCoroutineScope()
+    var galleryBusy by remember { mutableStateOf(false) }
+    val galleryBusyState = rememberUpdatedState(galleryBusy)
+    val scannerEnabledState = rememberUpdatedState(scannerEnabled)
 
     var hasPermission by remember { mutableStateOf(context.hasCameraPermission()) }
     var previewView by remember { mutableStateOf<PreviewView?>(null) }
@@ -163,6 +172,30 @@ fun InlineQrScannerCard(
         hasPermission = granted
     }
 
+    val galleryLauncher = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri == null) {
+            galleryBusy = false
+        } else {
+            galleryBusy = true
+            scope.launch {
+                try {
+                    val text = decodeBitmapQr(context, uri)
+                    if (scannerEnabledState.value) {
+                        if (text == null) {
+                            Toast.makeText(context, R.string.no_qr_found, Toast.LENGTH_SHORT).show()
+                        } else if (onScanResultState.value(text)) {
+                            consumed = true
+                        } else {
+                            Toast.makeText(context, R.string.wrongcode, Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                } finally {
+                    galleryBusy = false
+                }
+            }
+        }
+    }
+
     LaunchedEffect(hasPermission) {
         if (!hasPermission) {
             permissionLauncher.launch(Manifest.permission.CAMERA)
@@ -212,6 +245,7 @@ fun InlineQrScannerCard(
         consumed,
         lifecycleResumed,
         scannerEnabled,
+        galleryBusy,
         barcodeScanner
     ) {
         val generation = bindingGeneration.incrementAndGet()
@@ -223,6 +257,7 @@ fun InlineQrScannerCard(
             consumed ||
             !lifecycleResumed ||
             !scannerEnabled ||
+            galleryBusy ||
             activeBarcodeScanner == null
         ) {
             camera = null
@@ -251,7 +286,9 @@ fun InlineQrScannerCard(
                             .also { imageAnalysis ->
                                 imageAnalysis.setAnalyzer(analyzerExecutor) { imageProxy ->
                                     val mediaImage = imageProxy.image
-                                    if (mediaImage == null || consumed) {
+                                    if (mediaImage == null || consumed || galleryBusyState.value ||
+                                        bindingGeneration.get() != generation
+                                    ) {
                                         imageProxy.close()
                                         return@setAnalyzer
                                     }
@@ -273,7 +310,10 @@ fun InlineQrScannerCard(
                                                         .trimOuterScannerWhitespace(barcode.rawValue)
                                                         ?.takeIf { value -> value.isNotEmpty() }
                                                 }
-                                            if (rawValue != null && !consumed) {
+                                            if (rawValue != null && !consumed && !galleryBusyState.value &&
+                                                scannerEnabledState.value && !disposed &&
+                                                bindingGeneration.get() == generation
+                                            ) {
                                                 val nowMs = android.os.SystemClock.elapsedRealtime()
                                                 val isRepeatOfRejected = rawValue == rejectedScan.value &&
                                                     nowMs - rejectedScan.atMs < REJECTED_SCAN_COOLDOWN_MS
@@ -288,7 +328,7 @@ fun InlineQrScannerCard(
                                             }
                                         }
                                         .addOnFailureListener(mainExecutor) { throwable ->
-                                            if (!consumed) {
+                                            if (!consumed && !disposed && !galleryBusyState.value) {
                                                 scannerError = throwable.message
                                             }
                                         }
@@ -334,179 +374,198 @@ fun InlineQrScannerCard(
         }
     }
 
-    Surface(
-        modifier = modifier,
-        shape = RoundedCornerShape(24.dp),
-        tonalElevation = 3.dp,
-        color = MaterialTheme.colorScheme.surfaceContainerHigh
-    ) {
-        Box(modifier = Modifier.fillMaxSize()) {
-            if (hasPermission && scannerEnabled) {
-                key(previewInstanceNonce) {
-                    AndroidView(
-                        modifier = Modifier.fillMaxSize(),
-                        factory = { ctx ->
-                            PreviewView(ctx).apply {
-                                scaleType = PreviewView.ScaleType.FILL_CENTER
-                                implementationMode = PreviewView.ImplementationMode.COMPATIBLE
-                                setOnTouchListener { _, event ->
-                                    scaleDetector.onTouchEvent(event)
-                                    val action = event.actionMasked
-                                    val activeNow = action != MotionEvent.ACTION_UP &&
-                                        action != MotionEvent.ACTION_CANCEL &&
-                                        action != MotionEvent.ACTION_OUTSIDE
-                                    if (touchActive != activeNow) {
-                                        touchActive = activeNow
-                                        onTouchInteractionChangedState.value?.invoke(activeNow)
-                                    }
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Surface(
+            modifier = modifier,
+            shape = RoundedCornerShape(24.dp),
+            tonalElevation = 3.dp,
+            color = MaterialTheme.colorScheme.surfaceContainerHigh
+        ) {
+            Box(modifier = Modifier.fillMaxSize()) {
+                if (hasPermission && scannerEnabled) {
+                    key(previewInstanceNonce) {
+                        AndroidView(
+                            modifier = Modifier.fillMaxSize(),
+                            factory = { ctx ->
+                                PreviewView(ctx).apply {
+                                    scaleType = PreviewView.ScaleType.FILL_CENTER
+                                    implementationMode = PreviewView.ImplementationMode.COMPATIBLE
+                                    setOnTouchListener { _, event ->
+                                        scaleDetector.onTouchEvent(event)
+                                        val action = event.actionMasked
+                                        val activeNow = action != MotionEvent.ACTION_UP &&
+                                            action != MotionEvent.ACTION_CANCEL &&
+                                            action != MotionEvent.ACTION_OUTSIDE
+                                        if (touchActive != activeNow) {
+                                            touchActive = activeNow
+                                            onTouchInteractionChangedState.value?.invoke(activeNow)
+                                        }
 
-                                    val activeCamera = cameraState.value
-                                    val activePreview = previewView ?: this
-                                    if (
-                                        action == MotionEvent.ACTION_UP &&
-                                        !scaleDetector.isInProgress &&
-                                        activeCamera != null
-                                    ) {
-                                        val focusPoint = activePreview.meteringPointFactory.createPoint(event.x, event.y)
-                                        val focusAction = FocusMeteringAction.Builder(
-                                            focusPoint,
-                                            FocusMeteringAction.FLAG_AF or FocusMeteringAction.FLAG_AE
-                                        ).setAutoCancelDuration(3, TimeUnit.SECONDS).build()
-                                        activeCamera.cameraControl.startFocusAndMetering(focusAction)
+                                        val activeCamera = cameraState.value
+                                        val activePreview = previewView ?: this
+                                        if (
+                                            action == MotionEvent.ACTION_UP &&
+                                            !scaleDetector.isInProgress &&
+                                            activeCamera != null
+                                        ) {
+                                            val focusPoint = activePreview.meteringPointFactory.createPoint(event.x, event.y)
+                                            val focusAction = FocusMeteringAction.Builder(
+                                                focusPoint,
+                                                FocusMeteringAction.FLAG_AF or FocusMeteringAction.FLAG_AE
+                                            ).setAutoCancelDuration(3, TimeUnit.SECONDS).build()
+                                            activeCamera.cameraControl.startFocusAndMetering(focusAction)
+                                        }
+                                        true
                                     }
-                                    true
-                                }
-                            }.also { previewView = it }
-                        },
-                        update = { preview -> previewView = preview }
+                                }.also { previewView = it }
+                            },
+                            update = { preview -> previewView = preview }
+                        )
+                    }
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(MaterialTheme.colorScheme.surfaceVariant)
                     )
                 }
-            } else {
+
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(MaterialTheme.colorScheme.surfaceVariant)
-                )
-            }
-
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.verticalGradient(
-                            colors = listOf(
-                                Color.Black.copy(alpha = 0.22f),
-                                Color.Transparent,
-                                Color.Black.copy(alpha = 0.32f)
+                        .background(
+                            Brush.verticalGradient(
+                                colors = listOf(
+                                    Color.Black.copy(alpha = 0.22f),
+                                    Color.Transparent,
+                                    Color.Black.copy(alpha = 0.32f)
+                                )
                             )
                         )
-                    )
-            )
+                )
 
-            Box(
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .size(260.dp)
-                    .clip(RoundedCornerShape(20.dp))
-                    .border(
-                        width = 2.dp,
-                        color = Color.White.copy(alpha = 0.88f),
-                        shape = RoundedCornerShape(20.dp)
-                    )
-            )
-
-            if (hasPermission && camera?.cameraInfo?.hasFlashUnit() == true) {
-                Surface(
-                    modifier = Modifier
-                        .align(Alignment.TopStart)
-                        .padding(12.dp),
-                    shape = RoundedCornerShape(14.dp),
-                    color = Color.Black.copy(alpha = 0.45f)
-                ) {
-                    IconButton(
-                        onClick = {
-                            val nextTorch = !torchEnabled
-                            try {
-                                camera?.cameraControl?.enableTorch(nextTorch)
-                                torchEnabled = nextTorch
-                            } catch (throwable: Throwable) {
-                                scannerError = throwable.message ?: throwable.javaClass.simpleName
-                            }
-                        }
-                    ) {
-                        Icon(
-                            imageVector = if (torchEnabled) Icons.Filled.FlashOn else Icons.Filled.FlashOff,
-                            contentDescription = stringResource(R.string.flash),
-                            tint = Color.White
-                        )
-                    }
-                }
-            }
-
-            if (hasPermission && onManualFallback != null) {
-                Surface(
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(12.dp),
-                    shape = RoundedCornerShape(14.dp),
-                    color = Color.Black.copy(alpha = 0.45f)
-                ) {
-                    IconButton(onClick = {
-                        if (touchActive) {
-                            touchActive = false
-                            onTouchInteractionChangedState.value?.invoke(false)
-                        }
-                        camera = null
-                        torchEnabled = false
-                        previewView = null
-                        previewInstanceNonce++
-                        onManualFallback()
-                    }) {
-                        Icon(
-                            imageVector = Icons.Filled.OpenInFull,
-                            contentDescription = stringResource(R.string.scan_qr_button),
-                            tint = Color.White
-                        )
-                    }
-                }
-            }
-
-            if (!hasPermission || scannerError != null) {
-                Column(
+                Box(
                     modifier = Modifier
                         .align(Alignment.Center)
-                        .padding(20.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Text(
-                        text = if (!hasPermission) {
-                            stringResource(R.string.scan_permission)
-                        } else {
-                            stringResource(R.string.scanner_label)
-                        },
-                        color = Color.White,
-                        style = MaterialTheme.typography.titleMedium
-                    )
-
-                    if (scannerError != null) {
-                        Text(
-                            text = scannerError ?: "",
-                            color = Color.White.copy(alpha = 0.9f),
-                            style = MaterialTheme.typography.bodySmall
+                        .size(260.dp)
+                        .clip(RoundedCornerShape(20.dp))
+                        .border(
+                            width = 2.dp,
+                            color = Color.White.copy(alpha = 0.88f),
+                            shape = RoundedCornerShape(20.dp)
                         )
-                    }
+                )
 
-                    Button(onClick = { permissionLauncher.launch(Manifest.permission.CAMERA) }) {
-                        Text(stringResource(R.string.permission))
-                    }
-
-                    if (onManualFallback != null) {
-                        OutlinedButton(onClick = onManualFallback) {
-                            Text(manualFallbackLabel ?: stringResource(R.string.scanname))
+                if (hasPermission && camera?.cameraInfo?.hasFlashUnit() == true) {
+                    Surface(
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .padding(12.dp),
+                        shape = RoundedCornerShape(14.dp),
+                        color = Color.Black.copy(alpha = 0.45f)
+                    ) {
+                        IconButton(
+                            onClick = {
+                                val nextTorch = !torchEnabled
+                                try {
+                                    camera?.cameraControl?.enableTorch(nextTorch)
+                                    torchEnabled = nextTorch
+                                } catch (throwable: Throwable) {
+                                    scannerError = throwable.message ?: throwable.javaClass.simpleName
+                                }
+                            }
+                        ) {
+                            Icon(
+                                imageVector = if (torchEnabled) Icons.Filled.FlashOn else Icons.Filled.FlashOff,
+                                contentDescription = stringResource(R.string.flash),
+                                tint = Color.White
+                            )
                         }
                     }
                 }
+
+                if (hasPermission && onManualFallback != null && !galleryBusy) {
+                    Surface(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(12.dp),
+                        shape = RoundedCornerShape(14.dp),
+                        color = Color.Black.copy(alpha = 0.45f)
+                    ) {
+                        IconButton(onClick = {
+                            if (touchActive) {
+                                touchActive = false
+                                onTouchInteractionChangedState.value?.invoke(false)
+                            }
+                            camera = null
+                            torchEnabled = false
+                            previewView = null
+                            previewInstanceNonce++
+                            onManualFallback()
+                        }) {
+                            Icon(
+                                imageVector = Icons.Filled.OpenInFull,
+                                contentDescription = stringResource(R.string.scan_qr_button),
+                                tint = Color.White
+                            )
+                        }
+                    }
+                }
+
+                if (!hasPermission || scannerError != null) {
+                    Column(
+                        modifier = Modifier
+                            .align(Alignment.Center)
+                            .padding(20.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Text(
+                            text = if (!hasPermission) {
+                                stringResource(R.string.scan_permission)
+                            } else {
+                                stringResource(R.string.scanner_label)
+                            },
+                            color = Color.White,
+                            style = MaterialTheme.typography.titleMedium
+                        )
+
+                        if (scannerError != null) {
+                            Text(
+                                text = scannerError ?: "",
+                                color = Color.White.copy(alpha = 0.9f),
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+
+                        Button(onClick = { permissionLauncher.launch(Manifest.permission.CAMERA) }) {
+                            Text(stringResource(R.string.permission))
+                        }
+
+                        if (onManualFallback != null) {
+                            OutlinedButton(onClick = onManualFallback) {
+                                Text(manualFallbackLabel ?: stringResource(R.string.scanname))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if (showGalleryPicker) {
+            OutlinedButton(
+                modifier = Modifier.padding(top = 8.dp),
+                enabled = scannerEnabled && !galleryBusy,
+                onClick = {
+                    galleryBusy = true
+                    try {
+                        galleryLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                    } catch (_: Exception) {
+                        galleryBusy = false
+                        Toast.makeText(context, R.string.error, Toast.LENGTH_SHORT).show()
+                    }
+                }
+            ) {
+                Text(stringResource(if (galleryBusy) R.string.qr_gallery_decoding else R.string.select_gallery_button))
             }
         }
     }

@@ -79,4 +79,16 @@
             android:background="@drawable/bg_scan_line" />
 
     </FrameLayout>
+    <Button
+        android:id="@+id/scanGalleryButton"
+        android:layout_width="wrap_content"
+        android:layout_height="56dp"
+        android:layout_gravity="bottom|center_horizontal"
+        android:layout_marginBottom="24dp"
+        android:background="@drawable/bg_scan_chip"
+        android:paddingStart="24dp"
+        android:paddingEnd="24dp"
+        android:text="@string/select_gallery_button"
+        android:textAllCaps="false"
+        android:textColor="#FFFFFF" />
 </FrameLayout>

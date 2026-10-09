@@ -41,18 +41,10 @@ import tk.glucodata.R
 import tk.glucodata.Natives
 import tk.glucodata.ui.util.BleDeviceScanner
 
-import android.graphics.BitmapFactory
-import kotlin.math.max
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
-import com.google.zxing.BinaryBitmap
-import com.google.zxing.MultiFormatReader
-import com.google.zxing.RGBLuminanceSource
-import com.google.zxing.common.HybridBinarizer
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import tk.glucodata.drivers.sibionics.SibionicsConstants
 import tk.glucodata.drivers.sibionics.SibionicsRegistry
 
@@ -91,72 +83,6 @@ enum class SibionicsSetupStep {
     SELECT_TYPE,
     SCAN_SENSOR,
     CONNECTING
-}
-
-// Helper to decode QR from URI
-suspend fun decodeBitmapQr(context: android.content.Context, uri: android.net.Uri): String? {
-    return withContext(Dispatchers.IO) {
-        try {
-            val bounds = BitmapFactory.Options().apply {
-                inJustDecodeBounds = true
-            }
-            context.contentResolver.openInputStream(uri)?.use { input ->
-                BitmapFactory.decodeStream(input, null, bounds)
-            }
-
-            val width = bounds.outWidth
-            val height = bounds.outHeight
-            if (width <= 0 || height <= 0) return@withContext null
-
-            val maxDimension = max(width, height)
-            var baseSample = 1
-            while (maxDimension / baseSample > 1600) {
-                baseSample *= 2
-            }
-
-            val attempts = linkedSetOf(baseSample, baseSample / 2, 1)
-                .filter { it >= 1 }
-
-            for (sampleSize in attempts) {
-                val options = BitmapFactory.Options().apply {
-                    inSampleSize = sampleSize
-                    inPreferredConfig = android.graphics.Bitmap.Config.RGB_565
-                }
-                val bitmap = context.contentResolver.openInputStream(uri)?.use { input ->
-                    BitmapFactory.decodeStream(input, null, options)
-                } ?: continue
-
-                try {
-                    decodeQrFromBitmap(bitmap)?.let { return@withContext it }
-                } finally {
-                    bitmap.recycle()
-                }
-            }
-
-            null
-        } catch (e: Exception) {
-            android.util.Log.e("QrDecode", "Error decoding QR", e)
-            null
-        } catch (oom: OutOfMemoryError) {
-            android.util.Log.e("QrDecode", "Out of memory decoding QR image: $uri", oom)
-            null
-        }
-    }
-}
-
-private fun decodeQrFromBitmap(bitmap: android.graphics.Bitmap): String? {
-    val width = bitmap.width
-    val height = bitmap.height
-    val pixels = IntArray(width * height)
-    bitmap.getPixels(pixels, 0, width, 0, 0, width, height)
-
-    val source = RGBLuminanceSource(width, height, pixels)
-    val binaryBitmap = BinaryBitmap(HybridBinarizer(source))
-    return try {
-        MultiFormatReader().decode(binaryBitmap).text
-    } catch (_: Exception) {
-        null
-    }
 }
 
 /**
@@ -670,6 +596,7 @@ fun ScanSensorStep(
                     .fillMaxWidth()
                     .height(if (compact) 320.dp else 380.dp),
                 scannerEnabled = !galleryDecodeInProgress,
+                showGalleryPicker = false,
                 onScanResult = { raw ->
                     if (handledScan) true else submitManagedQr(raw).also { handledScan = it }
                 },

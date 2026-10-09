@@ -9,6 +9,7 @@ import android.app.Activity;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.media.Image;
+import android.net.Uri;
 import android.os.Bundle;
 import android.util.Size;
 import android.view.MotionEvent;
@@ -17,10 +18,14 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.view.animation.LinearInterpolator;
 import android.widget.ImageButton;
+import android.widget.Button;
 import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.annotation.NonNull;
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.PickVisualMediaRequest;
+import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.camera.core.Camera;
 import androidx.camera.core.CameraSelector;
@@ -39,6 +44,8 @@ import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
+import androidx.lifecycle.Lifecycle;
+import tk.glucodata.ui.setup.GalleryBarcodeDecoder;
 
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.mlkit.vision.barcode.BarcodeScanner;
@@ -50,6 +57,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class UnifiedScanActivity extends AppCompatActivity {
     public static final String EXTRA_SCAN_TEXT = "tk.glucodata.extra.scan_text";
@@ -69,6 +77,7 @@ public class UnifiedScanActivity extends AppCompatActivity {
     private View scanLine;
     private TextView titleView;
     private ImageButton flashButton;
+    private Button galleryButton;
     private ObjectAnimator scanAnimator;
     private ScaleGestureDetector scaleDetector;
 
@@ -85,7 +94,21 @@ public class UnifiedScanActivity extends AppCompatActivity {
     private final AtomicBoolean analyzerBusy = new AtomicBoolean(false);
     private final AtomicBoolean finished = new AtomicBoolean(false);
     private final AtomicBoolean cameraStartInFlight = new AtomicBoolean(false);
+    private final AtomicInteger cameraGeneration = new AtomicInteger();
     private boolean torchEnabled = false;
+    private volatile boolean galleryPicking;
+    private volatile boolean galleryDecoding;
+    private Uri pendingGalleryUri;
+    private final ActivityResultLauncher<PickVisualMediaRequest> galleryLauncher =
+            registerForActivityResult(new ActivityResultContracts.PickVisualMedia(), uri -> {
+                galleryPicking = false;
+                if (uri == null) {
+                    updateGalleryButton();
+                    startCamera();
+                } else {
+                    decodeGalleryImage(uri);
+                }
+            });
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -103,6 +126,12 @@ public class UnifiedScanActivity extends AppCompatActivity {
         scanLine = findViewById(R.id.scanLine);
         titleView = findViewById(R.id.scanTitle);
         flashButton = findViewById(R.id.scanFlashButton);
+        galleryButton = findViewById(R.id.scanGalleryButton);
+        if (savedInstanceState != null) {
+            galleryPicking = savedInstanceState.getBoolean("galleryPicking");
+            String pendingUri = savedInstanceState.getString("pendingGalleryUri");
+            if (pendingUri != null) pendingGalleryUri = Uri.parse(pendingUri);
+        }
         final ImageButton closeButton = findViewById(R.id.scanCancelButton);
         previewView.setScaleType(PreviewView.ScaleType.FILL_CENTER);
         previewView.setImplementationMode(PreviewView.ImplementationMode.COMPATIBLE);
@@ -114,6 +143,7 @@ public class UnifiedScanActivity extends AppCompatActivity {
 
         closeButton.setOnClickListener(v -> cancelAndFinish());
         flashButton.setOnClickListener(v -> toggleTorch());
+        galleryButton.setOnClickListener(v -> pickGalleryImage());
 
         analyzerExecutor = Executors.newSingleThreadExecutor();
         try {
@@ -125,11 +155,11 @@ public class UnifiedScanActivity extends AppCompatActivity {
         } catch (Throwable t) {
             Log.stack(LOG_ID, "createBarcodeScanner", t);
             Toast.makeText(this, R.string.error, Toast.LENGTH_SHORT).show();
-            cancelAndFinish();
-            return;
         }
 
-        if (!hasCameraPermission()) {
+        if (pendingGalleryUri != null) decodeGalleryImage(pendingGalleryUri);
+        updateGalleryButton();
+        if (!hasCameraPermission() && savedInstanceState == null) {
             ActivityCompat.requestPermissions(
                     this,
                     new String[]{Manifest.permission.CAMERA},
@@ -143,16 +173,75 @@ public class UnifiedScanActivity extends AppCompatActivity {
                 == PackageManager.PERMISSION_GRANTED;
     }
 
+    private boolean galleryBusy() {
+        return galleryPicking || galleryDecoding;
+    }
+
+    private void updateGalleryButton() {
+        galleryButton.setEnabled(!galleryBusy() && !finished.get());
+        galleryButton.setText(galleryDecoding ? R.string.qr_gallery_decoding : R.string.select_gallery_button);
+    }
+
+    private void pickGalleryImage() {
+        if (galleryBusy() || finished.get()) return;
+        galleryPicking = true;
+        releaseCameraSession();
+        updateGalleryButton();
+        try {
+            galleryLauncher.launch(new PickVisualMediaRequest.Builder()
+                    .setMediaType(ActivityResultContracts.PickVisualMedia.ImageOnly.INSTANCE).build());
+        } catch (Exception e) {
+            galleryPicking = false;
+            updateGalleryButton();
+            Toast.makeText(this, R.string.error, Toast.LENGTH_SHORT).show();
+            startCamera();
+        }
+    }
+
+    private void decodeGalleryImage(Uri uri) {
+        if (finished.get()) return;
+        galleryDecoding = true;
+        pendingGalleryUri = uri;
+        releaseCameraSession();
+        updateGalleryButton();
+        analyzerExecutor.execute(() -> {
+            String text = GalleryBarcodeDecoder.decode(getApplicationContext(), uri);
+            runOnUiThread(() -> {
+                if (isDestroyed() || finished.get()) return;
+                pendingGalleryUri = null;
+                galleryDecoding = false;
+                updateGalleryButton();
+                if (text != null) {
+                    deliverResult(text);
+                } else {
+                    Toast.makeText(this, R.string.no_qr_found, Toast.LENGTH_SHORT).show();
+                    startCamera();
+                }
+            });
+        });
+    }
+
+    @Override
+    protected void onSaveInstanceState(@NonNull Bundle outState) {
+        outState.putBoolean("galleryPicking", galleryPicking);
+        if (pendingGalleryUri != null) outState.putString("pendingGalleryUri", pendingGalleryUri.toString());
+        super.onSaveInstanceState(outState);
+    }
+
     private void applySystemInsets() {
         final View root = findViewById(R.id.scanRoot);
         final int topLeft = topBar.getPaddingLeft();
         final int topTop = topBar.getPaddingTop();
         final int topRight = topBar.getPaddingRight();
         final int topBottom = topBar.getPaddingBottom();
+        final ViewGroup.MarginLayoutParams galleryMargins = (ViewGroup.MarginLayoutParams) galleryButton.getLayoutParams();
+        final int galleryBottom = galleryMargins.bottomMargin;
 
         ViewCompat.setOnApplyWindowInsetsListener(root, (v, insets) -> {
             Insets systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars());
             topBar.setPadding(topLeft, topTop + systemBars.top, topRight, topBottom);
+            galleryMargins.bottomMargin = galleryBottom + systemBars.bottom;
+            galleryButton.setLayoutParams(galleryMargins);
             return insets;
         });
         ViewCompat.requestApplyInsets(root);
@@ -252,10 +341,19 @@ public class UnifiedScanActivity extends AppCompatActivity {
     }
 
     private void startCamera() {
-        if (finished.get() || !cameraStartInFlight.compareAndSet(false, true)) {
+        if (finished.get() || galleryBusy() || barcodeScanner == null || !hasCameraPermission() ||
+                !getLifecycle().getCurrentState().isAtLeast(Lifecycle.State.STARTED) ||
+                !cameraStartInFlight.compareAndSet(false, true)) {
             return;
         }
-        ListenableFuture<ProcessCameraProvider> providerFuture = ProcessCameraProvider.getInstance(this);
+        final ListenableFuture<ProcessCameraProvider> providerFuture;
+        try {
+            providerFuture = ProcessCameraProvider.getInstance(this);
+        } catch (Throwable t) {
+            cameraStartInFlight.set(false);
+            Toast.makeText(this, R.string.error, Toast.LENGTH_SHORT).show();
+            return;
+        }
         providerFuture.addListener(() -> {
             try {
                 if (finished.get()) {
@@ -263,15 +361,16 @@ public class UnifiedScanActivity extends AppCompatActivity {
                     return;
                 }
                 cameraProvider = providerFuture.get();
-                if (finished.get() || isFinishing() || isDestroyed()) {
+                if (finished.get() || galleryBusy() || isFinishing() || isDestroyed() ||
+                        !getLifecycle().getCurrentState().isAtLeast(Lifecycle.State.STARTED)) {
                     releaseCameraSession();
                     return;
                 }
                 bindCameraUseCases();
             } catch (Throwable t) {
                 Log.stack(LOG_ID, "startCamera", t);
-                Toast.makeText(this, t.getMessage(), Toast.LENGTH_SHORT).show();
-                cancelAndFinish();
+                Toast.makeText(this, R.string.error, Toast.LENGTH_SHORT).show();
+                releaseCameraSession();
             } finally {
                 cameraStartInFlight.set(false);
             }
@@ -279,7 +378,7 @@ public class UnifiedScanActivity extends AppCompatActivity {
     }
 
     private void bindCameraUseCases() {
-        if (cameraProvider == null || finished.get() || isFinishing() || isDestroyed()) return;
+        if (cameraProvider == null || galleryBusy() || finished.get() || isFinishing() || isDestroyed()) return;
         cameraProvider.unbindAll();
 
         Preview preview = new Preview.Builder().build();
@@ -295,7 +394,8 @@ public class UnifiedScanActivity extends AppCompatActivity {
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                 .setResolutionSelector(analysisResolution)
                 .build();
-        analysis.setAnalyzer(analyzerExecutor, this::analyzeFrame);
+        final int generation = cameraGeneration.incrementAndGet();
+        analysis.setAnalyzer(analyzerExecutor, frame -> analyzeFrame(frame, generation));
 
         camera = cameraProvider.bindToLifecycle(
                 this,
@@ -308,6 +408,7 @@ public class UnifiedScanActivity extends AppCompatActivity {
     }
 
     private void releaseCameraSession() {
+        cameraGeneration.incrementAndGet();
         try {
             if (cameraProvider != null) {
                 cameraProvider.unbindAll();
@@ -319,8 +420,8 @@ public class UnifiedScanActivity extends AppCompatActivity {
         updateFlashButtonState();
     }
 
-    private void analyzeFrame(@NonNull ImageProxy imageProxy) {
-        if (finished.get()) {
+    private void analyzeFrame(@NonNull ImageProxy imageProxy, int generation) {
+        if (finished.get() || galleryBusy() || barcodeScanner == null || cameraGeneration.get() != generation) {
             imageProxy.close();
             return;
         }
@@ -344,13 +445,18 @@ public class UnifiedScanActivity extends AppCompatActivity {
             String mirrorQr = MirrorQrFrameDecoder.decode(imageProxy);
             if (mirrorQr != null && !mirrorQr.isEmpty()) {
                 imageProxy.close();
-                runOnUiThread(() -> deliverResult(PhotoScan.trimOuterScannerWhitespace(mirrorQr)));
+                analyzerBusy.set(false);
+                runOnUiThread(() -> {
+                    if (!galleryBusy() && !isDestroyed() && cameraGeneration.get() == generation)
+                        deliverResult(PhotoScan.trimOuterScannerWhitespace(mirrorQr));
+                });
                 return;
             }
         }
 
         barcodeScanner.process(inputImage)
                 .addOnSuccessListener(barcodes -> {
+                    if (galleryBusy() || isDestroyed() || cameraGeneration.get() != generation) return;
                     for (Barcode barcode : barcodes) {
                         String raw = barcode.getRawValue();
                         if (raw != null && !raw.isEmpty()) {
@@ -442,7 +548,6 @@ public class UnifiedScanActivity extends AppCompatActivity {
                 startCamera();
             } else {
                 Toast.makeText(this, R.string.scan_permission, Toast.LENGTH_SHORT).show();
-                cancelAndFinish();
             }
         }
     }
