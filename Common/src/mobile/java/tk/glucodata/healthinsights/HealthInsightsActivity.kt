@@ -4,8 +4,6 @@ package tk.glucodata.healthinsights
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -28,7 +26,6 @@ import tk.glucodata.HealthConnection
 import tk.glucodata.SensorVisuals
 import tk.glucodata.ui.JugglucoTheme
 import tk.glucodata.ui.util.GlucoseFormatter
-import java.io.File
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -70,7 +67,7 @@ private fun Insights(activity: HealthInsightsActivity) {
         sourceMessage = when {
             result.first == null -> "未找到来源。可输入来源 ID、完整 UID 或本应用保存的 Health Connect 记录 ID。"
             result.third != null -> "佩戴周期：${result.third!!.wearId ?: "历史归属未确定"}；${if (result.third!!.uploaded) "该记录已完成提交" else "该记录等待提交或重试"}"
-            else -> "最近 ${result.second.size} 条本地 Auto／Raw 数据；导出按钮仍包含全部来源与历史。"
+            else -> "最近 ${result.second.size} 条本地 Auto／Raw 数据；导出／上传页面可选择全部来源或指定传感器。"
         }
     }
     var busy by remember { mutableStateOf(false) }
@@ -78,18 +75,7 @@ private fun Insights(activity: HealthInsightsActivity) {
     var health by remember { mutableStateOf(emptyList<JSONObject>()) }
     var glucose by remember { mutableStateOf(emptyList<HistoryReading>()) }
     var states by remember { mutableStateOf(emptyList<JSONObject>()) }
-    var pendingExport by remember { mutableStateOf<File?>(null) }
     var permissionGranted by remember { mutableStateOf(emptySet<HealthKind>()) }
-    val save = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
-        val file = pendingExport; pendingExport = null
-        if (file != null) scope.launch {
-            try {
-                if (uri != null) withContext(Dispatchers.IO) { activity.contentResolver.openOutputStream(uri)?.use { output -> file.inputStream().use { it.copyTo(output) } } ?: error("Cannot open selected file") }
-                message = if (uri == null) "保存已取消" else "完整数据包已保存，可通过文件管理器分享给 Agent"
-            } catch (ex: Exception) { message = "保存失败：${ex.message}" }
-            finally { file.delete() }
-        }
-    }
     suspend fun load() {
         withContext(Dispatchers.IO) {
             states = coordinator.store.states()
@@ -177,12 +163,9 @@ private fun Insights(activity: HealthInsightsActivity) {
                     items(states) { state -> Text("${HealthKind.entries.firstOrNull { it.kind == state.optString("kind") }?.label ?: state.optString("kind")}：${statusLabel(state.optString("status"))}\n最近成功：${state.optLong("last_success_epoch_ms").takeIf { it > 0 }?.let { localTime(Instant.ofEpochMilli(it).toString()) } ?: "暂无"}\n${state.optString("error").takeUnless { it == "null" } ?: ""}", style = MaterialTheme.typography.bodySmall) }
                 }
             }
-            Button(modifier = Modifier.fillMaxWidth().padding(16.dp), enabled = !busy, onClick = { scope.launch {
-                busy = true; message = "正在刷新并导出全部本地数据…"
-                try { pendingExport = HealthInsightExport.create(activity, coordinator); load(); save.launch(pendingExport!!.name) }
-                catch (ex: Exception) { message = "导出失败：${ex.message}" }
-                finally { busy = false }
-            } }) { Text("导出全部数据给 Agent") }
+            Button(modifier = Modifier.fillMaxWidth().padding(16.dp), enabled = !busy, onClick = {
+                activity.startActivity(android.content.Intent(activity, HealthDataTransferActivity::class.java))
+            }) { Text("导出／上传数据给 Agent") }
         }
     }
 }

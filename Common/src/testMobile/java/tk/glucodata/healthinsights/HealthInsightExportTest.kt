@@ -29,6 +29,68 @@ class HealthInsightExportTest {
         override suspend fun request(activity: Activity, kinds: Set<HealthKind>) = emptySet<HealthKind>()
         override suspend fun read(kinds: Set<HealthKind>, from: Instant, until: Instant, store: HealthInsightStore, progress: (String) -> Unit) = error("disabled SDK must not read")
     }
+    @Test fun selectedCgmExportsOneOrSeveralSensorsWithoutHealthJournalOrOtherLanes() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        context.deleteDatabase("health-insights.db")
+        context.getSharedPreferences("health_insights", 0).edit().clear().commit()
+        var availabilityChecks = 0
+        val adapter = object : SamsungReadAdapter by unavailable {
+            override val available: Boolean get() { availabilityChecks++; error("CGM-only must not invoke Samsung") }
+        }
+        val coordinator = HealthInsightCoordinator(context, adapter)
+        coordinator.settings.edit().putBoolean("enabled", true).commit()
+        val name = "health-selected-${java.util.UUID.randomUUID()}.db"
+        val db = Room.databaseBuilder(context, HistoryDatabase::class.java, name).build()
+        try {
+            val stamp = Instant.parse("2026-10-06T03:00:00.123Z").toEpochMilli()
+            // An entirely excluded first page must still advance the cursor.
+            db.historyDao().insertAll((0..2004).map { n -> HistoryReading(timestamp = stamp + n * 60_000L,
+                sensorSerial = if (n < 1000) "excluded" else if (n % 2 == 0) "a" else "b",
+                value = 100f, rawValue = 90f, rate = null, firstStoredAt = 1) })
+            db.readingDisplayDao().sealAll(listOf(
+                ReadingDisplay(ReadingDisplay.minuteOf(stamp), "excluded", 117f, 1, 42L, stamp),
+                ReadingDisplay(ReadingDisplay.minuteOf(stamp + 1000 * 60_000), "a", 118f, 1, 42L, stamp)))
+            db.readingUncertaintyDao().insertAll(listOf(
+                ReadingUncertainty("excluded", ReadingDisplay.minuteOf(stamp), 80f, 120f, .9f, null, null),
+                ReadingUncertainty("a", ReadingDisplay.minuteOf(stamp + 1000 * 60_000), 81f, 121f, .9f, null, null)))
+            db.journalDao().upsertEntry(JournalEntryEntity(timestamp = stamp, sensorSerial = "a", entryType = "note", title = "private note", note = "must not leak",
+                amount = null, glucoseValueMgDl = null, durationMinutes = null, intensity = null, insulinPresetId = null, source = "manual", sourceRecordId = null, createdAt = 1, updatedAt = 1))
+            val run = coordinator.store.begin()
+            val health = HealthCanonical.base("cached", "blood_oxygen", HealthCanonical.time(Instant.ofEpochMilli(stamp), Instant.ofEpochMilli(stamp), "+07:00"), "samsung_health", Instant.ofEpochMilli(stamp))
+            coordinator.store.stage(run, HealthKind.BLOOD_OXYGEN, health, emptyList())
+            coordinator.store.complete(run, HealthKind.BLOOD_OXYGEN, Instant.ofEpochMilli(stamp), Instant.ofEpochMilli(stamp + 1))
+            for (selected in listOf(setOf("a"), setOf("a", "b"))) {
+                val file = HealthInsightExport.create(context, coordinator, db, HealthExportSelection(HealthExportSelection.Scope.CGM_ONLY, selected))
+                try { ZipFile(file).use { zip ->
+                    fun rows(name: String) = zip.getInputStream(zip.getEntry(name)).bufferedReader().use { it.readLines().filter(String::isNotBlank).map(::JSONObject) }
+                    val expected = selected.map { coordinator.store.alias("juggluco", "sensor", it) }.toSet()
+                    val values = rows("glucose.jsonl")
+                    assertEquals(if (selected.size == 1) 503 else 1005, values.size)
+                    assertEquals(expected, values.map { it.getJSONObject("source").getString("sensor_alias") }.toSet())
+                    assertEquals(stamp + 1000 * 60_000, values.first().getJSONObject("time").getLong("start_epoch_ms"))
+                    assertEquals(90.0, values.first().getJSONObject("metrics").getJSONObject("device_glucose").getDouble("value"), 0.0)
+                    assertEquals(expected, rows("glucose-sources.jsonl").map { it.getString("sensor_alias") }.toSet())
+                    for (stream in listOf("recorded-display.jsonl", "uncertainty.jsonl")) assertEquals(listOf(coordinator.store.alias("juggluco", "sensor", "a")), rows(stream).map { it.getString("sensor_alias") })
+                    for (stream in listOf("samsung-records.jsonl", "series.jsonl", "relations.jsonl", "journal.jsonl")) assertTrue(rows(stream).isEmpty())
+                    val manifest = JSONObject(zip.getInputStream(zip.getEntry("manifest.json")).bufferedReader().readText())
+                    assertFalse(manifest.getBoolean("partial_refresh"))
+                    assertFalse(manifest.getJSONObject("selection").getBoolean("health_and_journal_included"))
+                    assertEquals("CGM_ONLY", manifest.getJSONObject("selection").getString("mode"))
+                    assertEquals(0, manifest.getJSONArray("samsung_sync").length())
+                } } finally { file.delete() }
+            }
+            assertEquals(0, availabilityChecks)
+            assertEquals(2005, db.historyDao().getCount())
+            assertTrue(coordinator.store.states().all { it.optString("status") == "success" })
+        } finally { db.close(); context.deleteDatabase(name); coordinator.store.close() }
+    }
+    @Test fun emptyOrAmbiguousSensorSelectionIsRejected() {
+        assertTrue(runCatching { HealthExportSelection(HealthExportSelection.Scope.CGM_ONLY) }.isFailure)
+        assertTrue(runCatching { HealthExportSelection(HealthExportSelection.Scope.CGM_ONLY, setOf(" ")) }.isFailure)
+        assertTrue(runCatching { HealthExportSelection(sensors = setOf("a")) }.isFailure)
+        assertTrue(HealthExportSelection().accepts("a"))
+        assertFalse(HealthExportSelection(HealthExportSelection.Scope.CGM_ONLY, setOf("a")).accepts("b"))
+    }
     @Test fun fullZipUsesAllSensorsAndPagesRetainsSeriesRawDisplayLogsAndAbsoluteTime() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<Context>()
         context.deleteDatabase("health-insights.db")

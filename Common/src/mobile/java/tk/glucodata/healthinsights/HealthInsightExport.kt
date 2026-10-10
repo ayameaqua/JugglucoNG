@@ -17,27 +17,33 @@ import java.util.zip.ZipOutputStream
 import java.security.MessageDigest
 
 internal object HealthInsightExport {
-    suspend fun create(context: Context, coordinator: HealthInsightCoordinator, database: HistoryDatabase? = null): File = coordinator.afterRefreshSnapshot {
+    suspend fun create(context: Context, coordinator: HealthInsightCoordinator, database: HistoryDatabase? = null, selection: HealthExportSelection = HealthExportSelection()): File {
+        val build: suspend () -> File = { snapshot(context, coordinator, database, selection) }
+        return if (selection.includeHealth) coordinator.afterRefreshSnapshot(build) else build()
+    }
+    private suspend fun snapshot(context: Context, coordinator: HealthInsightCoordinator, database: HistoryDatabase?, selection: HealthExportSelection): File =
         withContext(Dispatchers.IO) {
             val cutoff = Instant.now()
             val folder = File(context.cacheDir, "health-export-${UUID.randomUUID()}").apply { check(mkdirs()) }
-            val output = File(context.cacheDir, "juggluco-health-export-${cutoff.toEpochMilli()}.zip")
+            val output = File(context.cacheDir, "juggluco-${if (selection.includeHealth) "health" else "cgm"}-export-${cutoff.toEpochMilli()}-${UUID.randomUUID().toString().take(8)}.zip")
             val sourceStore = HealthConnectSources(context)
             val sourceCatalog = mutableMapOf<String, HealthConnectSources.Source>()
             try {
                 var samsungCount = 0
                 File(folder, "samsung-records.jsonl").bufferedWriter().use { records ->
                     File(folder, "series.jsonl").bufferedWriter().use { series ->
-                        File(folder, "relations.jsonl").bufferedWriter().use { relations -> samsungCount = coordinator.store.snapshot(records, series, relations) }
+                        File(folder, "relations.jsonl").bufferedWriter().use { relations -> if (selection.includeHealth) samsungCount = coordinator.store.snapshot(records, series, relations) }
                     }
                 }
-                val states = coordinator.store.states()
+                val states = if (selection.includeHealth) coordinator.store.states() else emptyList()
                 val db = database ?: HistoryDatabase.getInstance(context)
                 var glucoseCount = 0; var journalCount = 0
                 var min = Long.MAX_VALUE; var max = 0L
                 // Separate source snapshot validated against concurrent Room commits; no writer transaction.
                 StableHistoryRead.run(db) {
                     glucoseCount = 0; journalCount = 0; min = Long.MAX_VALUE; max = 0L
+                    sourceCatalog.clear()
+                    selection.sensors.sorted().forEach { serial -> sourceCatalog[serial] = HealthConnectSources.resolve(context, sourceStore, serial) }
                     File(folder, "recorded-display.jsonl").bufferedWriter().use { displayWriter ->
                         File(folder, "uncertainty.jsonl").bufferedWriter().use { uncertaintyWriter ->
                             File(folder, "glucose.jsonl").bufferedWriter().use { writer ->
@@ -47,8 +53,9 @@ internal object HealthInsightExport {
                                         val page = db.historyDao().healthExportPage(after, cutoff.toEpochMilli(), 1000)
                                         if (page.isEmpty()) break
                                         for (reading in page) {
-                                            val sensor = sourceCatalog.getOrPut(reading.sensorSerial) { HealthConnectSources.resolve(context, sourceStore, reading.sensorSerial) }
                                             after = reading.id
+                                            if (!selection.accepts(reading.sensorSerial)) continue
+                                            val sensor = sourceCatalog.getOrPut(reading.sensorSerial) { HealthConnectSources.resolve(context, sourceStore, reading.sensorSerial) }
                                             val stamp = Instant.ofEpochMilli(reading.timestamp)
                                             val id = coordinator.store.alias("juggluco", "blood_glucose", "${reading.sensorSerial}:${reading.timestamp}")
                                             val row = HealthCanonical.base(id, "blood_glucose", HealthCanonical.time(stamp, stamp, null), "juggluco", cutoff)
@@ -70,6 +77,7 @@ internal object HealthInsightExport {
                                         if (page.isEmpty()) break
                                         for (display in page) {
                                             displayAfter = display.timestamp
+                                            if (!selection.accepts(display.sensorSerial) || display.timestamp > cutoff.toEpochMilli()) continue
                                             displayWriter.line(JSONObject().put("timestamp_epoch_ms", display.timestamp)
                                                 .put("sensor_alias", coordinator.store.alias("juggluco", "sensor", display.sensorSerial))
                                                 .put("display_mgdl", display.displayMgdl).put("view_mode", display.viewMode)
@@ -82,6 +90,7 @@ internal object HealthInsightExport {
                                         if (page.isEmpty()) break
                                         for (value in page) {
                                             uncertaintyAfter = value.timestamp; uncertaintySensor = value.sensorSerial
+                                            if (!selection.accepts(value.sensorSerial) || value.timestamp > cutoff.toEpochMilli()) continue
                                             uncertaintyWriter.line(JSONObject().put("timestamp_epoch_ms", value.timestamp)
                                                 .put("sensor_alias", coordinator.store.alias("juggluco", "sensor", value.sensorSerial))
                                                 .put("lower_mgdl", value.lowerMgdl).put("upper_mgdl", value.upperMgdl).put("interval_mass", value.intervalMass)
@@ -89,7 +98,7 @@ internal object HealthInsightExport {
                                         }
                                     }
                                     var journalAfter = 0L
-                                    while (true) {
+                                    while (selection.includeHealth) {
                                         val page = db.journalDao().getRecoveryEntriesPage(journalAfter, 1000)
                                         if (page.isEmpty()) break
                                         for (entry in page) {
@@ -125,20 +134,22 @@ internal object HealthInsightExport {
                         .put("model", source.model ?: JSONObject.NULL).put("health_connect_device_model", source.device.model))
                 } }
                 val partial = states.any { it.optString("status") !in setOf("success", "association_permission") }
-                val manifest = JSONObject().put("schema_version", "0.1.0").put("exported_at_utc", cutoff.toString()).put("cutoff_epoch_ms", cutoff.toEpochMilli())
-                    .put("scope", "all_valid_local_records_all_sensors_all_channels_all_cached_samsung_types_and_journal")
-                    .put("source_snapshots", "Samsung cache lock, then Room pages validated by a dedicated read-only data_version connection; concurrent changes retry; no cross-database atomicity claimed")
+                val manifest = JSONObject().put("schema_version", "0.2.0").put("exported_at_utc", cutoff.toString()).put("cutoff_epoch_ms", cutoff.toEpochMilli())
+                    .put("scope", if (selection.includeHealth) "all_valid_local_records_all_sensors_all_channels_all_cached_samsung_types_and_journal" else "selected_cgm_all_local_history_all_channels")
+                    .put("selection", JSONObject().put("mode", selection.scope.name).put("health_and_journal_included", selection.includeHealth)
+                        .put("sensor_aliases", JSONArray(sourceCatalog.keys.map { coordinator.store.alias("juggluco", "sensor", it) })))
+                    .put("source_snapshots", if (selection.includeHealth) "Samsung cache lock, then Room pages validated by a dedicated read-only data_version connection; concurrent changes retry; no cross-database atomicity claimed" else "Only selected CGM: Room pages validated by a dedicated read-only data_version connection; concurrent changes retry; Samsung SDK/cache and journal excluded")
                     .put("counts", JSONObject().put("blood_glucose", glucoseCount).put("samsung_health", samsungCount).put("journal", journalCount))
                     .put("partial_refresh", partial).put("samsung_sync", JSONArray(states)).put("samsung_read_enabled", coordinator.settings.getBoolean("enabled", false))
-                    .put("samsung_selected_types", JSONArray(coordinator.selected().map { it.name })).put("timestamps", "absolute UTC instants; original Samsung offsets retained; CGM offsets unknown are null")
+                    .put("samsung_selected_types", JSONArray(if (selection.includeHealth) coordinator.selected().map { it.name } else emptyList<String>())).put("timestamps", "absolute UTC instants; original Samsung offsets retained; CGM offsets unknown are null")
                     .put("unmapped_fields", "Retained under attributes.sdk_fields and child series; normalization is partial, units are not guessed")
                     .put("coverage", JSONObject().put("glucose_start_epoch_ms", if (min == Long.MAX_VALUE) JSONObject.NULL else min).put("glucose_end_epoch_ms", if (max == 0L) JSONObject.NULL else max)
-                        .put("samsung", "Only previously synchronized scope, not entire Samsung account history"))
+                        .put("samsung", if (selection.includeHealth) "Only previously synchronized scope, not entire Samsung account history" else "Excluded; Samsung SDK not refreshed for this export"))
                 File(folder, "manifest.json").writeText(manifest.toString(2))
                 val summary = JSONObject().put("glucose_records", glucoseCount).put("samsung_records", samsungCount).put("journal_records", journalCount).put("partial_refresh", partial)
                 File(folder, "summary.json").writeText(summary.toString(2))
-                File(folder, "summary.md").writeText("血糖 $glucoseCount 条；三星健康 $samsungCount 条；日志 $journalCount 条。\n\n本包包含全部已缓存数据和完整子序列。刷新${if (partial) "存在失败或跳过，请查 manifest.json" else "完成"}。时序共现不能说明因果。\n")
-                File(folder, "README.txt").writeText("JugglucoNG 健康数据 0.1.0\n先读 manifest.json 和 summary.json。逐行读取 glucose.jsonl、samsung-records.jsonl、journal.jsonl；再按 parent_record_id/series_id 加载 series.jsonl，按 relations.jsonl 关联睡眠。UTC epoch 是比较依据，勿按手机时区平移记录。每日汇总保留三星的本地日期语义，不伪造采样时刻。所有数值/完整日志已保留，未映射字段不能猜单位。glucose=Room 存储 Auto 通道，device_glucose=Raw 通道；recorded-display.jsonl 另外保留实际记录的显示值及通道，uncertainty.jsonl 保留可信区间。应用的后处理显示校准不重复套用。保留失败状态和已有缓存不代表全账户覆盖。文件可能含个人健康和用户输入日志，分享由用户操作。\n")
+                File(folder, "summary.md").writeText("血糖 $glucoseCount 条；三星健康 $samsungCount 条；日志 $journalCount 条。\n\n范围：${if (selection.includeHealth) "全部本地整合数据，包括三星已缓存数据和日志" else "指定的 ${selection.sensors.size} 支 CGM 的全部本地历史；不包含三星健康或日志"}。${if (!selection.includeHealth) "本次未刷新三星。" else if (partial) "刷新存在失败或跳过，请查 manifest.json。" else "刷新完成。"}时序共现不能说明因果。\n")
+                File(folder, "README.txt").writeText("JugglucoNG 健康数据 0.2.0\n先读 manifest.json 的 scope/selection 和 summary.json，确认本包是否仅包含指定 CGM。逐行读取 glucose.jsonl、samsung-records.jsonl、journal.jsonl；再按 parent_record_id/series_id 加载 series.jsonl，按 relations.jsonl 关联睡眠。UTC epoch 是比较依据，勿按手机时区平移记录。每日汇总保留三星的本地日期语义，不伪造采样时刻。选中范围的全部数值及日志已保留，未映射字段不能猜单位。glucose=Room 存储 Auto 通道，device_glucose=Raw 通道；recorded-display.jsonl 另外保留实际记录的显示值及通道，uncertainty.jsonl 保留可信区间。应用的后处理显示校准不重复套用。保留失败状态和已有缓存不代表全账户覆盖。文件可能含个人健康和用户输入日志，分享由用户操作。\n")
                 File(folder, "README.txt").appendText("\nglucose-sources.jsonl 给出各血糖来源的目录，按 sensor_alias/source_uid_alias 关联；local_lookup_id 可在本机血糖来源页查询。wear_session_alias 仅表示已知的佩戴周期，null 保持未知，不能按当前探头参数猜旧历史归属。\n")
                 for (name in listOf("record.schema.json", "series.schema.json", "field-catalog.json", "capabilities.json")) {
                     context.assets.open("health-insights/$name").use { input -> File(folder, name).outputStream().use { input.copyTo(it) } }
@@ -170,7 +181,6 @@ internal object HealthInsightExport {
             } catch (ex: Exception) { output.delete(); throw ex }
             finally { sourceStore.close(); folder.deleteRecursively() }
         }
-    }
     private fun journalFields(entry: tk.glucodata.data.journal.JournalEntryEntity): JSONObject = JSONObject().apply {
         put("id", JSONObject.wrap(entry.id))
         put("timestamp", JSONObject.wrap(entry.timestamp))

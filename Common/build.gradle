@@ -413,6 +413,8 @@ dependencies {
     // ---- mobile ----
     mobileImplementation 'com.google.android.material:material:1.14.0'
     mobileImplementation 'com.google.code.gson:gson:2.10.1'
+    // Native user authorization; access tokens stay in memory. No client secret or server.
+    mobileImplementation 'com.google.android.gms:play-services-auth:22.0.0'
     if (samsungHealthEnabled) {
         mobileImplementation files(samsungHealthSdkPath)
         // The local Samsung AAR has no POM and uses Parceler in its public DTOs.

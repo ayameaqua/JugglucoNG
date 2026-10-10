@@ -76,3 +76,4 @@ __pycache__/
 /health-data-private/
 **/shealth-probe-*.zip
 **/juggluco-health-export-*.zip
+**/juggluco-cgm-export-*.zip
