@@ -8,6 +8,7 @@ import androidx.room.withTransaction
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.transform
@@ -37,9 +38,9 @@ import kotlin.concurrent.withLock
  * - Backfilling ALL existing history from ALL active sensors on first run
  * - Querying history for chart display (per-sensor or all)
  */
-class HistoryRepository(context: Context = Applic.app) {
+class HistoryRepository internal constructor(private val database: HistoryDatabase) {
+    @JvmOverloads constructor(context: Context = Applic.app) : this(HistoryDatabase.getInstance(context))
     
-    private val database = HistoryDatabase.getInstance(context)
     private val dao = database.historyDao()
     private val uncertaintyDao = database.readingUncertaintyDao()
     private val displayDao = database.readingDisplayDao()
@@ -1506,6 +1507,49 @@ class HistoryRepository(context: Context = Applic.app) {
     // costs the window, not the store.
 
     private val timestampIndex: HistoryTimestampIndexTracker get() = timestampIndex(dao)
+
+    fun observeBrowseSensors(): kotlinx.coroutines.flow.Flow<List<String>> =
+        dao.getStoredSensorSerialsFlow().map { serials -> serials.map(HistoryBrowseData::sensorId).distinct() }
+            .distinctUntilChanged().flowOn(Dispatchers.IO)
+
+    /** Strict source filtering: no implicit imports, overlap dominance or cross-CGM collapse. */
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    fun observeBrowseWindow(
+        sensorIds: List<String>?, startTime: Long, endTime: Long,
+    ): kotlinx.coroutines.flow.Flow<List<GlucosePoint>> {
+        if (sensorIds?.isEmpty() == true) return kotlinx.coroutines.flow.flowOf(emptyList())
+        val padded = HistoryDisplayMerge.paddedWindow(startTime, endTime)
+        val rows = if (sensorIds == null) dao.getReadingsBetweenFlow(padded.first, padded.last)
+            else dao.getStoredSensorSerialsFlow().flatMapLatest { stored ->
+                val selected = sensorIds.map(HistoryBrowseData::sensorId).toSet()
+                val aliases = stored.filter { HistoryBrowseData.sensorId(it) in selected }
+                dao.getReadingsBetweenForSensorsFlow(aliases, padded.first, padded.last)
+            }
+        return kotlinx.coroutines.flow.combine(
+            rows, uncertaintyDao.getBetweenFlow(padded.first, padded.last), displayDao.getBetweenFlow(padded.first, padded.last),
+        ) { readings, uncertainty, display ->
+            // Map sealed values against the original stored identity before normalizing UI identities.
+            val mapped = mapReadings(HistoryBrowseData.merge(readings), uncertainty.indexed(), display.indexedDisplay())
+            val identities = mapped.mapNotNull { it.sensorSerial }.distinct().associateWith(HistoryBrowseData::sensorId)
+            mapped.filter { it.timestamp in startTime..endTime }.map { it.copy(sensorSerial = identities[it.sensorSerial]) }
+        }.flowOn(Dispatchers.IO)
+    }
+
+    /** Count each CGM separately, including coincident timestamps from different CGMs. */
+    fun observeBrowseSummary(
+        sensorIds: List<String>?, startTime: Long, endTime: Long,
+    ): kotlinx.coroutines.flow.Flow<TimelineRangeSummary?> = dao.getTableFingerprintFlow().map {
+        val stored = dao.getAllSensorSerials()
+        val grouped = stored.groupBy(HistoryBrowseData::sensorId).filterKeys { sensor ->
+            sensorIds == null || sensorIds.any { SensorIdentity.matches(sensor, it) }
+        }
+        val summaries = grouped.values.map { dao.getBrowseSensorSummary(it, startTime, endTime) }
+            .filter { it.readingCount > 0 }
+        if (summaries.isEmpty()) null else TimelineRangeSummary(
+            summaries.sumOf { it.readingCount }, summaries.minOf { requireNotNull(it.earliestMs) },
+            summaries.maxOf { requireNotNull(it.latestMs) },
+        )
+    }.distinctUntilChanged().flowOn(Dispatchers.IO)
 
     /** Oldest and newest stored reading and the row count, live. */
     fun observeTimelineExtents(): kotlinx.coroutines.flow.Flow<TimelineExtents?> =

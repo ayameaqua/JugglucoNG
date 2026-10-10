@@ -96,7 +96,9 @@ import java.util.concurrent.TimeUnit
 @Composable
 fun HistoryExportSheet(
     onDismiss: () -> Unit,
-    sheetState: SheetState
+    sheetState: SheetState,
+    /** History's selected sources; the existing callers keep their merged export. */
+    loadHistory: (suspend (Long, Long, Boolean) -> List<GlucosePoint>)? = null,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -113,7 +115,8 @@ fun HistoryExportSheet(
                 val days = daysText.toLongOrNull() ?: 30L
                 val endTime = System.currentTimeMillis()
                 val startTime = endTime - (days * 24 * 60 * 60 * 1000L)
-                val data = tk.glucodata.data.GlucoseRepository().getMergedHistory(startTime, isMmol)
+                val data = loadHistory?.invoke(startTime, endTime, isMmol)
+                    ?: tk.glucodata.data.GlucoseRepository().getMergedHistory(startTime, isMmol)
                 val unit = if (isMmol) "mmol/L" else "mg/dL"
                 val success = tk.glucodata.data.HistoryExporter.exportToCsv(
                     context = context,
@@ -147,7 +150,8 @@ fun HistoryExportSheet(
                 val days = daysText.toLongOrNull() ?: 30L
                 val endTime = System.currentTimeMillis()
                 val startTime = endTime - (days * 24 * 60 * 60 * 1000L)
-                val data = tk.glucodata.data.GlucoseRepository().getMergedHistory(startTime, isMmol)
+                val data = loadHistory?.invoke(startTime, endTime, isMmol)
+                    ?: tk.glucodata.data.GlucoseRepository().getMergedHistory(startTime, isMmol)
                 val unit = if (isMmol) "mmol/L" else "mg/dL"
                 val success = tk.glucodata.data.HistoryExporter.exportToReadable(
                     context = context,

@@ -120,7 +120,7 @@ private data class TimelineRowItem(
 
 private fun TimelineRowItem.rowKey(): String {
     val journalKey = journalEntries.joinToString(separator = ",") { it.id.toString() }
-    return "$timestamp-${point?.timestamp ?: "journal"}-$journalKey"
+    return "$timestamp-${point?.sensorSerial.orEmpty()}-${point?.timestamp ?: "journal"}-$journalKey"
 }
 
 private data class TimelineJournalGrouping(
@@ -136,17 +136,6 @@ enum class TimelineBrowseMode {
 private sealed class HistoryFilterOption {
     object Readings : HistoryFilterOption()
     data class Journal(val type: JournalEntryType) : HistoryFilterOption()
-}
-
-private fun List<GlucosePoint>.sliceByTimestampRange(startMillis: Long, endMillis: Long): List<GlucosePoint> {
-    if (isEmpty()) return emptyList()
-    val startIndex = binarySearchBy(startMillis) { it.timestamp }
-        .let { if (it >= 0) it else (-it - 1).coerceAtLeast(0) }
-    val endInsertionPoint = binarySearchBy(endMillis) { it.timestamp }
-        .let { if (it >= 0) it + 1 else (-it - 1) }
-        .coerceAtMost(size)
-    if (startIndex >= endInsertionPoint) return emptyList()
-    return subList(startIndex, endInsertionPoint)
 }
 
 private fun resolveHistoryActiveRange(
@@ -339,9 +328,11 @@ private fun buildTimelineRows(
     entries: List<JournalEntry>,
     browseMode: TimelineBrowseMode,
     /** The whole history, ascending, for the rows' arrows; [points] is the visible slice. */
-    trendSource: List<GlucosePoint> = points
+    trendSource: List<GlucosePoint> = points,
+    separateSources: Boolean = false,
 ): List<TimelineRowItem> {
     val grouping = groupJournalEntriesForTimeline(points, entries)
+    val sourceTrends = if (separateSources) HistorySourceTrends(trendSource) else null
     val pointRows = points.mapNotNull { point ->
         val rowEntries = grouping.entriesByPointTimestamp[point.timestamp].orEmpty()
         when (browseMode) {
@@ -349,7 +340,7 @@ private fun buildTimelineRows(
                 timestamp = point.timestamp,
                 point = point,
                 journalEntries = rowEntries,
-                trendHistory = rowTrendHistory(trendSource, point.timestamp)
+                trendHistory = sourceTrends?.forPoint(point) ?: rowTrendHistory(trendSource, point.timestamp)
             )
 
             TimelineBrowseMode.JOURNAL -> rowEntries.takeIf { it.isNotEmpty() }?.let {
@@ -357,7 +348,7 @@ private fun buildTimelineRows(
                     timestamp = point.timestamp,
                     point = point,
                     journalEntries = it,
-                    trendHistory = rowTrendHistory(trendSource, point.timestamp)
+                    trendHistory = sourceTrends?.forPoint(point) ?: rowTrendHistory(trendSource, point.timestamp)
                 )
             }
         }
@@ -426,11 +417,17 @@ fun HistoryBrowseScreen(
     /** Reports the chart's viewport so the owner of [glucoseHistory] can load around it. */
     onVisibleRangeChanged: ((startMs: Long, endMs: Long) -> Unit)? = null,
     /** What a range of the timeline holds, live; null falls back to the loaded list. */
-    rangeSummaryFlow: ((startMs: Long, endMs: Long) -> kotlinx.coroutines.flow.Flow<TimelineRangeSummary?>)? = null
+    rangeSummaryFlow: ((startMs: Long, endMs: Long) -> kotlinx.coroutines.flow.Flow<TimelineRangeSummary?>)? = null,
+    sensorSources: List<tk.glucodata.ui.viewmodel.HistorySensorSource> = emptyList(),
+    sourceScopeKey: Any? = null,
+    sourceControls: (@Composable () -> Unit)? = null,
+    exportHistory: (suspend (Long, Long, Boolean) -> List<GlucosePoint>)? = null,
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val sortedHistory = remember(glucoseHistory) { glucoseHistory.ascendingByTimestamp() }
+    val sourceById = remember(sensorSources) { sensorSources.associateBy { it.id } }
+    val separateSources = sourceControls != null
     val journalPresetsById = remember(journalInsulinPresets) { journalInsulinPresets.associateBy { it.id } }
     val journalFoodsById = remember(journalFoods) { journalFoods.associateBy { it.id } }
     val loadedExtents = remember(sortedHistory) {
@@ -454,6 +451,7 @@ fun HistoryBrowseScreen(
     var showDateRangePicker by rememberSaveable { mutableStateOf(false) }
     var showExportSheet by rememberSaveable { mutableStateOf(false) }
     var viewportSnapshot by remember { mutableStateOf<ChartViewportSnapshot?>(null) }
+    LaunchedEffect(sourceScopeKey) { viewportSnapshot = null }
     var showReadingRows by rememberSaveable { mutableStateOf(true) }
     var selectedJournalTypeFilters by rememberSaveable {
         mutableStateOf(JournalEntryType.entries.map { it.name })
@@ -478,6 +476,20 @@ fun HistoryBrowseScreen(
     }
     val activeHistory = remember(sortedHistory, activeRange) {
         activeRange?.let { sortedHistory.sliceByTimestampRange(it.startMillis, it.endMillis) } ?: sortedHistory
+    }
+    val chartPrimaryId = if (separateSources && activeHistory.none { it.sensorSerial == sensorId })
+        activeHistory.lastOrNull()?.sensorSerial ?: sensorId else sensorId
+    val chartHistory = remember(activeHistory, chartPrimaryId, separateSources) {
+        if (separateSources) activeHistory.filter { it.sensorSerial == chartPrimaryId } else activeHistory
+    }
+    val chartPeers = remember(activeHistory, chartPrimaryId, sourceById, separateSources) {
+        if (separateSources) MultiSensorDisplayData(
+            activeHistory.groupBy { it.sensorSerial }.mapNotNull { (id, points) ->
+                if (id == null || id == chartPrimaryId) null else PeerSensorSeries(
+                    id, sourceById[id]?.viewMode ?: 0, sourceById[id]?.colorArgb ?: tk.glucodata.SensorVisuals.colorArgb(id), points,
+                )
+            }, emptyMap(),
+        ) else MultiSensorDisplayData.EMPTY
     }
     // What the active range holds across the whole store — the loaded list is
     // only a window of it. Live, so the count follows the store like it did.
@@ -530,7 +542,7 @@ fun HistoryBrowseScreen(
     }
     val viewportStart = viewportSnapshot?.startMillis ?: activeRange?.startMillis ?: availableRange?.startMillis
     val viewportEnd = viewportSnapshot?.endMillis ?: activeRange?.endMillis ?: availableRange?.endMillis
-    val visibleTimelineRows = remember(filteredHistory, filteredJournalEntries, viewportStart, viewportEnd, effectiveBrowseMode) {
+    val visibleTimelineRows = remember(filteredHistory, filteredJournalEntries, viewportStart, viewportEnd, effectiveBrowseMode, sortedHistory, separateSources) {
         val windowStart = viewportStart ?: Long.MIN_VALUE
         val windowEnd = viewportEnd ?: Long.MAX_VALUE
         val visibleHistory = filteredHistory.sliceByTimestampRange(windowStart, windowEnd)
@@ -541,7 +553,8 @@ fun HistoryBrowseScreen(
             points = visibleHistory,
             entries = visibleJournalEntries,
             browseMode = effectiveBrowseMode,
-            trendSource = sortedHistory
+            trendSource = sortedHistory,
+            separateSources = separateSources,
         )
     }
     val visibleSections = remember(visibleTimelineRows) { buildHistorySections(visibleTimelineRows) }
@@ -551,19 +564,17 @@ fun HistoryBrowseScreen(
     // The Δ states a movement, so it reads the reading as the app reasons with it rather
     // than as it was stored — the same series the dashboard, the notification and the delta
     // alarms use. Built once per history alongside the index it feeds.
-    val evaluationHistory = remember(sortedHistory, evaluationSmoothingMinutes, collapseSmoothedData) {
-        buildSmoothedConsumerHistory(
-            points = sortedHistory,
-            evaluationSmoothingMinutes = evaluationSmoothingMinutes,
-            collapseChunks = collapseSmoothedData
-        )
+    val evaluationHistory = remember(sortedHistory, evaluationSmoothingMinutes, collapseSmoothedData, separateSources) {
+        val series = if (separateSources) sortedHistory.groupBy { it.sensorSerial }.values else listOf(sortedHistory)
+        series.flatMap { points -> buildSmoothedConsumerHistory(points, evaluationSmoothingMinutes, collapseSmoothedData) }
+            .sortedBy { it.timestamp }
     }
     val rowDeltaIndex = remember(showRowDelta, evaluationHistory) {
         if (showRowDelta) {
             RowDeltaIndex(
                 evaluationHistory,
                 sameSensor = SensorIdentity::matches,
-                isShared = { HistoryRepository.isImportedHistorySerial(it) }
+                isShared = { !separateSources && HistoryRepository.isImportedHistorySerial(it) }
             )
         } else null
     }
@@ -665,7 +676,7 @@ fun HistoryBrowseScreen(
             )
         }
     ) { innerPadding ->
-        if (effectiveExtents == null && journalEntries.isEmpty()) {
+        if (sourceControls == null && effectiveExtents == null && journalEntries.isEmpty()) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -686,6 +697,7 @@ fun HistoryBrowseScreen(
                 .padding(innerPadding),
             contentPadding = PaddingValues(bottom = 24.dp)
         ) {
+            if (sourceControls != null) item(key = "history-sensor-controls") { sourceControls() }
             item(key = "history-range-selector") {
                 Box(modifier = Modifier.padding(start = 16.dp, top = 16.dp, end = 16.dp)) {
                     StatsRangeSelectorControl(
@@ -721,8 +733,10 @@ fun HistoryBrowseScreen(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(420.dp),
-                            appChartRangeColors = chartRangeColors,
-                            glucoseHistory = activeHistory,
+                            appChartRangeColors = chartRangeColors && !separateSources,
+                            glucoseHistory = chartHistory,
+                            multiSensorDisplay = chartPeers,
+                            primarySourceColorArgb = sourceById[chartPrimaryId]?.colorArgb,
                             // The chart may pan over the whole active range, of
                             // which it holds a window; "latest" is the range's
                             // last reading, as it was when the list was the range.
@@ -737,7 +751,7 @@ fun HistoryBrowseScreen(
                             targetLow = targetLow,
                             targetHigh = targetHigh,
                             unit = unit,
-                            viewMode = viewMode,
+                            viewMode = if (separateSources) sourceById[chartPrimaryId]?.viewMode ?: 0 else viewMode,
                             calibrations = calibrations,
                             onTimeRangeSelected = { selectedChartRange = it },
                             selectedTimeRange = selectedChartRange,
@@ -869,13 +883,16 @@ fun HistoryBrowseScreen(
                             ReadingRow(
                                 point = readingPoint,
                                 unit = unit,
-                                viewMode = viewMode,
+                                viewMode = if (separateSources) sourceById[readingPoint.sensorSerial]?.viewMode ?: 0 else viewMode,
                                 index = 0,
                                 totalCount = section.items.size,
                                 history = item.trendHistory,
                                 deltaText = rowDeltas[readingPoint]?.text,
                                 deltaRateMgdlPerMinute = rowDeltas[readingPoint]?.rateMgdlPerMinute,
-                                sensorId = sensorId,
+                                sensorId = if (separateSources) readingPoint.sensorSerial else sensorId,
+                                multiSensorActive = separateSources,
+                                sourceLabel = if (separateSources) sourceById[readingPoint.sensorSerial]?.label ?: readingPoint.sensorSerial else null,
+                                sourceColorArgb = sourceById[readingPoint.sensorSerial]?.colorArgb,
                                 calibrations = calibrations,
                                 highlightLeadRow = false,
                                 showLeadingAction = journalEnabled && onAddJournalEntry != null,
@@ -994,7 +1011,8 @@ fun HistoryBrowseScreen(
     if (showExportSheet && showTransferActions) {
         HistoryExportSheet(
             onDismiss = { showExportSheet = false },
-            sheetState = rememberModalBottomSheetState()
+            sheetState = rememberModalBottomSheetState(),
+            loadHistory = exportHistory,
         )
     }
 }

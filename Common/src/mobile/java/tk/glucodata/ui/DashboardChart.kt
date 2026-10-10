@@ -691,22 +691,12 @@ private class TooltipPeerRow(
     val calibratedValue: Float?,
 )
 
-private fun List<GlucosePoint>.sliceByTimestampRange(startMillis: Long, endMillis: Long): List<GlucosePoint> {
-    if (isEmpty()) return emptyList()
-    val startIndex = binarySearchBy(startMillis) { it.timestamp }
-        .let { if (it >= 0) it else (-it - 1).coerceAtLeast(0) }
-    val endInsertionPoint = binarySearchBy(endMillis) { it.timestamp }
-        .let { if (it >= 0) it + 1 else (-it - 1) }
-        .coerceAtMost(size)
-    if (startIndex >= endInsertionPoint) return emptyList()
-    return subList(startIndex, endInsertionPoint)
-}
-
 @Composable
 fun DashboardChartSection(
     modifier: Modifier,
     glucoseHistory: List<GlucosePoint>,
     multiSensorDisplay: MultiSensorDisplayData = MultiSensorDisplayData.EMPTY,
+    primarySourceColorArgb: Int? = null,
     mainSensorOwnership: tk.glucodata.chart.MainSensorOwnership = tk.glucodata.chart.MainSensorOwnership.NONE,
     peerPredictionSeries: Map<String, List<GlucosePredictionSeries>> = emptyMap(),
     journalMarkers: List<JournalChartMarker> = emptyList(),
@@ -761,6 +751,7 @@ fun DashboardChartSection(
                         dataBounds = dataBounds,
                         onVisibleRangeChanged = onVisibleRangeChanged,
                         multiSensorDisplay = multiSensorDisplay,
+                        primarySourceColorArgb = primarySourceColorArgb,
                         mainSensorOwnership = mainSensorOwnership,
                         peerPredictionSeries = peerPredictionSeries,
                         journalMarkers = journalMarkers,
@@ -837,6 +828,7 @@ fun DashboardChartSection(
 fun InteractiveGlucoseChart(
     fullData: List<GlucosePoint>,
     multiSensorDisplay: MultiSensorDisplayData = MultiSensorDisplayData.EMPTY,
+    primarySourceColorArgb: Int? = null,
     mainSensorOwnership: tk.glucodata.chart.MainSensorOwnership = tk.glucodata.chart.MainSensorOwnership.NONE,
     peerPredictionSeries: Map<String, List<GlucosePredictionSeries>> = emptyMap(),
     journalMarkers: List<JournalChartMarker> = emptyList(),
@@ -1028,9 +1020,9 @@ fun InteractiveGlucoseChart(
         if (fullData is java.util.RandomAccess) fullData else ArrayList(fullData)
     }
     val primarySerial = fullData.lastOrNull()?.sensorSerial
-    val primaryIdentityColor = remember(primarySerial) {
+    val primaryIdentityColor = remember(primarySerial, primarySourceColorArgb) {
         val logical = SensorIdentity.resolveAppSensorId(primarySerial) ?: primarySerial
-        SensorColors.getColor(logical.orEmpty())
+        primarySourceColorArgb?.let { Color(it) } ?: SensorColors.getColor(logical.orEmpty())
     }
     // A colour the user picked for a sensor replaces the range colouring of its own trace.
     // Automatic (hash-assigned) colours deliberately do not, or every trace would lose the

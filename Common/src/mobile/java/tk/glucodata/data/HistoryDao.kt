@@ -119,6 +119,20 @@ interface HistoryDao {
     """)
     fun getReadingsBetweenFlow(startTime: Long, endTime: Long): Flow<List<HistoryReading>>
 
+    @Query("SELECT * FROM history_readings WHERE sensorSerial IN (:serials) AND timestamp >= :startTime AND timestamp <= :endTime ORDER BY timestamp ASC")
+    fun getReadingsBetweenForSensorsFlow(serials: List<String>, startTime: Long, endTime: Long): Flow<List<HistoryReading>>
+
+    @Query("SELECT DISTINCT sensorSerial FROM history_readings ORDER BY sensorSerial")
+    fun getStoredSensorSerialsFlow(): Flow<List<String>>
+
+    @Query("""
+        SELECT COUNT(DISTINCT (timestamp / 60000)) AS readingCount,
+               MIN(timestamp) AS earliestMs, MAX(timestamp) AS latestMs
+        FROM history_readings
+        WHERE sensorSerial IN (:serials) AND timestamp >= :startTime AND timestamp <= :endTime
+    """)
+    suspend fun getBrowseSensorSummary(serials: List<String>, startTime: Long, endTime: Long): HistoryBrowseSensorSummary
+
     /** The whole table in four numbers; see [HistoryTimestampIndexTracker]. */
     @Query("""
         SELECT COUNT(*) AS rowCount, MAX(id) AS maxId,

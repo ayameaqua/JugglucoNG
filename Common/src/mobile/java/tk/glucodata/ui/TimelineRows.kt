@@ -19,6 +19,28 @@ internal fun List<GlucosePoint>.ascendingByTimestamp(): List<GlucosePoint> {
     return this
 }
 
+/** Inclusive bounds include every source at a coincident timestamp. */
+internal fun List<GlucosePoint>.sliceByTimestampRange(startMillis: Long, endMillis: Long): List<GlucosePoint> {
+    fun bound(timestamp: Long, inclusive: Boolean): Int {
+        var lo = 0
+        var hi = size
+        while (lo < hi) {
+            val mid = (lo + hi) ushr 1
+            if (this[mid].timestamp < timestamp || (inclusive && this[mid].timestamp == timestamp)) lo = mid + 1 else hi = mid
+        }
+        return lo
+    }
+    val start = bound(startMillis, false)
+    val end = bound(endMillis, true)
+    return if (start >= end) emptyList() else subList(start, end)
+}
+
+/** The arrows use each row's CGM, without looking at the neighbouring CGM's values. */
+internal class HistorySourceTrends(points: List<GlucosePoint>) {
+    private val bySource = points.groupBy { it.sensorSerial }
+    fun forPoint(point: GlucosePoint): List<GlucosePoint> = rowTrendHistory(bySource[point.sensorSerial].orEmpty(), point.timestamp)
+}
+
 /**
  * The most points a row's arrow can be handed. TrendEngine regresses over at
  * most 25 minutes and 30 readings behind the row, but it also measures the

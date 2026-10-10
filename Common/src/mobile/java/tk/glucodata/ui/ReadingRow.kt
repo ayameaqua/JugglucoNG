@@ -2,6 +2,8 @@
 
 package tk.glucodata.ui
 
+import androidx.compose.foundation.background
+
 import android.view.HapticFeedbackConstants
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -86,6 +88,8 @@ fun ReadingRow(
     // no peer reading yet (e.g. a just-arrived primary reading). Keeps the
     // primary value's identity tint stable instead of flashing uncolored.
     multiSensorActive: Boolean = false,
+    sourceLabel: String? = null,
+    sourceColorArgb: Int? = null,
     sensorId: String? = null,
     calibrations: List<tk.glucodata.data.calibration.CalibrationEntity> = emptyList(),
     journalEntries: List<JournalEntry> = emptyList(),
@@ -223,7 +227,7 @@ fun ReadingRow(
     // only timestamp, value and raw value, so it is handed the points as they
     // are: the round trip through the native point type was two copies of the
     // tail per row for nothing.
-    val regressed = remember(history, index) {
+    val regressed = remember(history, index, viewMode, unit, point) {
         val relevantHistory = when {
             history.isEmpty() -> listOf(point)
             index == 0 -> history
@@ -299,7 +303,8 @@ fun ReadingRow(
                 val primarySerial = point.sensorSerial?.takeIf { it.isNotBlank() } ?: sensorId
                 androidx.compose.ui.graphics.lerp(
                     primaryBaseColor,
-                    SensorColors.getColor(SensorIdentity.resolveAppSensorId(primarySerial) ?: primarySerial.orEmpty()),
+                    sourceColorArgb?.let { Color(it) }
+                        ?: SensorColors.getColor(SensorIdentity.resolveAppSensorId(primarySerial) ?: primarySerial.orEmpty()),
                     tk.glucodata.SensorVisuals.PRIMARY_TEXT_BLEND
                 )
             } else {
@@ -316,6 +321,13 @@ fun ReadingRow(
             // chips: keep it tight against the main value (not floating in a
             // wide right-aligned slot) and give it the primary identity tint.
             val primaryTrendColor = if (isMultiSensor) primaryColor.copy(alpha = 0.7f) else tertiaryColor
+
+            if (sourceLabel != null) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp)) {
+                    Box(Modifier.size(7.dp).background(sourceColorArgb?.let { Color(it) } ?: primaryColor, androidx.compose.foundation.shape.CircleShape))
+                    Text(sourceLabel, Modifier.padding(start = 6.dp), style = MaterialTheme.typography.labelSmall, color = timeColor)
+                }
+            }
 
             @Composable
             fun ReadingTime() {
@@ -361,7 +373,7 @@ fun ReadingRow(
                         Spacer(modifier = Modifier.width(8.dp))
                     }
 
-                    if (tk.glucodata.data.calibration.CalibrationManager.hasCalibrationAt(point.timestamp, isRawModeRR)) {
+                    if (tk.glucodata.data.calibration.CalibrationManager.hasCalibrationAt(point.timestamp, isRawModeRR, calibrationSensorId)) {
                         Icon(
                             imageVector = Icons.Filled.WaterDrop,
                             contentDescription = null,

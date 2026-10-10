@@ -51,3 +51,10 @@ data class HistoryTableFingerprint(
     val minTimestamp: Long?,
     val maxTimestamp: Long?,
 )
+
+/** Aggregate for one logical CGM, including its historical storage aliases. */
+data class HistoryBrowseSensorSummary(
+    val readingCount: Int,
+    val earliestMs: Long?,
+    val latestMs: Long?,
+)

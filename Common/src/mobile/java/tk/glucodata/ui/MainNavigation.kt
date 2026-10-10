@@ -43,6 +43,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import tk.glucodata.ui.util.inDisplayUnit
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -139,16 +140,37 @@ private fun HistoryRoute(
     onTriggerCalibration: (CalibrationSheetState) -> Unit,
 //    initialShowReadingRows: Boolean = true
 ) {
-    // The merged cross-sensor timeline — the previous sensor's calibrated
-    // readings, imports and older device data stay visible across a sensor
-    // swap — loaded around the chart's viewport plus the live tail. The chart
-    // reports where it is looking through onVisibleRangeChanged and the view
-    // model loads accordingly; the store's ends come from timelineExtents.
-    val glucoseHistory by dashboardViewModel.glucoseHistory.collectAsStateWithLifecycle()
-    val timelineExtents by dashboardViewModel.timelineExtents.collectAsStateWithLifecycle()
+    // Journal retains its global timeline. History has its own source selection
+    // and queries, without changing the home primary or any acquisition state.
+    val dashboardHistory by dashboardViewModel.glucoseHistory.collectAsStateWithLifecycle()
+    val dashboardExtents by dashboardViewModel.timelineExtents.collectAsStateWithLifecycle()
     val unit by dashboardViewModel.unit.collectAsStateWithLifecycle()
     val viewMode by dashboardViewModel.viewMode.collectAsStateWithLifecycle()
     val sensorName by dashboardViewModel.sensorName.collectAsStateWithLifecycle()
+    val homeSensors by dashboardViewModel.selectedSensorIds.collectAsStateWithLifecycle()
+    val browser: tk.glucodata.ui.viewmodel.HistoryBrowserViewModel = viewModel()
+    val separateHistory = browseMode == TimelineBrowseMode.HISTORY
+    LaunchedEffect(sensorName, homeSensors) { browser.updateHome(sensorName, homeSensors) }
+    val browserHistory by browser.history.collectAsStateWithLifecycle()
+    val browserExtents by browser.extents.collectAsStateWithLifecycle()
+    val browserSelection by browser.selection.collectAsStateWithLifecycle()
+    val browserSources by browser.sources.collectAsStateWithLifecycle()
+    val querySensors by browser.querySensors.collectAsStateWithLifecycle()
+    val browserUnitHistory = remember(browserHistory, unit, querySensors) {
+        browserHistory.filter { querySensors == null || it.sensorSerial in querySensors.orEmpty() }
+            .inDisplayUnit(unit)
+    }
+    val glucoseHistory = if (separateHistory) browserUnitHistory else dashboardHistory
+    val timelineExtents = if (separateHistory) browserExtents else dashboardExtents
+    val historySensor = if (separateHistory) querySensors?.firstOrNull()
+        ?: glucoseHistory.lastOrNull()?.sensorSerial.orEmpty() else sensorName
+    val historyViewMode = if (separateHistory) browserSources.firstOrNull { it.id == historySensor }?.viewMode ?: 0 else viewMode
+    val viewportCallback = remember(separateHistory, browser, dashboardViewModel) {
+        if (separateHistory) browser::onViewportChanged else dashboardViewModel::onChartViewportChanged
+    }
+    val summaryCallback = remember(separateHistory, browser, dashboardViewModel) {
+        if (separateHistory) browser::rangeSummaryFlow else dashboardViewModel::timelineRangeSummaryFlow
+    }
     val graphLow by dashboardViewModel.graphLow.collectAsStateWithLifecycle()
     val graphHigh by dashboardViewModel.graphHigh.collectAsStateWithLifecycle()
     val targetLow by dashboardViewModel.targetLow.collectAsStateWithLifecycle()
@@ -194,8 +216,16 @@ private fun HistoryRoute(
     HistoryBrowseScreen(
         glucoseHistory = glucoseHistory,
         unit = unit,
-        viewMode = viewMode,
-        sensorId = sensorName,
+        viewMode = historyViewMode,
+        sensorId = historySensor,
+        sensorSources = if (separateHistory) browserSources else emptyList(),
+        sourceScopeKey = if (separateHistory) querySensors else "journal",
+        sourceControls = if (separateHistory) ({
+            HistorySensorControls(browserSelection, browserSources, tk.glucodata.data.HistoryBrowseData.sensorId(sensorName), browser::chooseMode, browser::chooseSingle, browser::toggleSensor)
+        }) else null,
+        exportHistory = if (separateHistory) ({ start, end, isMmol ->
+            browser.exportHistory(start, end).inDisplayUnit(isMmol)
+        }) else null,
         graphLow = graphLow,
         graphHigh = graphHigh,
         targetLow = targetLow,
@@ -217,8 +247,8 @@ private fun HistoryRoute(
         showRowDelta = rowsShowDelta,
         deltaIntervalMinutes = deltaIntervalMinutes,
         timelineExtents = timelineExtents,
-        onVisibleRangeChanged = dashboardViewModel::onChartViewportChanged,
-        rangeSummaryFlow = dashboardViewModel::timelineRangeSummaryFlow,
+        onVisibleRangeChanged = viewportCallback,
+        rangeSummaryFlow = summaryCallback,
         onBack = onBack,
         onPointClick = { point ->
             onTriggerCalibration(
@@ -226,7 +256,8 @@ private fun HistoryRoute(
                     point.value,
                     point.rawValue,
                     point.timestamp,
-                    point.sensorSerial?.takeIf { it.isNotBlank() } ?: sensorName
+                    point.sensorSerial?.takeIf { it.isNotBlank() } ?: sensorName,
+                    viewModeOverride = if (separateHistory) browserSources.firstOrNull { it.id == point.sensorSerial }?.viewMode ?: 0 else viewMode,
                 )
             )
         },

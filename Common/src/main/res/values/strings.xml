@@ -3133,4 +3133,12 @@ Pressing OK will generate a connection on this phone and display a QR code that 
     <string name="anytime_history_recompute_warning">Re-read this probe’s history up to the current reading and recompute it using the current parameters, including defaults if no calibration QR is available. Valid readings replace existing values and queue revisions for enabled uploads. Timestamps and earlier wear sessions stay unchanged. Missing inputs, warm-up and invalid readings retain existing values. This can take several minutes; live readings continue. Verify the probe QR before confirming.</string>
     <string name="anytime_history_not_ready">History could not start. Wait for a stable connection and a confirmed current-probe live reading, then try again.</string>
     <string name="qr_gallery_decoding">Reading image…</string>
+    <string name="history_sensor_single">Single</string>
+    <string name="history_sensor_selected">Selected combined</string>
+    <string name="history_sensor_all">All combined</string>
+    <string name="history_sensor_follow">Follow home sensor</string>
+    <string name="history_sensor_follow_label">Follow home · %1$s</string>
+    <string name="history_sensor_count">Choose sources · %1$d selected</string>
+    <string name="history_sensor_all_note">All sources, including ended sensors</string>
+    <string name="history_sensor_sources">Data sources</string>
 </resources>
