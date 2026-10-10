@@ -2,7 +2,7 @@ package tk.glucodata.drivers.sibionics
 
 internal object SibionicsSessionPolicy {
     internal fun probeIdentityChanged(previous: String?, scanned: String?): Boolean =
-        !scanned.isNullOrBlank() && scanned != previous
+        !previous.isNullOrBlank() && !scanned.isNullOrBlank() && scanned != previous
 
     internal fun shouldInvalidateProbe(newQr: Boolean, maintenanceSentAt: Long, restartedAt: Long): Boolean =
         newQr || maintenanceSentAt <= 0L || restartedAt <= 0L || kotlin.math.abs(restartedAt - maintenanceSentAt) > 10 * 60_000L

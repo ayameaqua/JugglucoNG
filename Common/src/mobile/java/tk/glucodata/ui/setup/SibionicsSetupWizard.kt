@@ -612,7 +612,8 @@ fun ScanSensorStep(
                     // The split generation needs the transmitter connection code; the generic
                     // text sends the user to the sensor box, whose code is then rejected.
                     ?: if (selectedType == SibionicsType.SIBIONICS2) {
-                        stringResource(R.string.scan_sensor_instruction_sibionics2)
+                        stringResource(R.string.scan_sensor_instruction_sibionics2) +
+                            "\n连接后请在传感器详情中补录当前一次性探头二维码，以取得工厂灵敏度。"
                     } else {
                         stringResource(R.string.scan_sensor_instruction)
                     },

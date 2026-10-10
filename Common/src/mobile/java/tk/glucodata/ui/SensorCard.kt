@@ -2649,6 +2649,9 @@ fun SensorCard(
 
             // Row 1: Unified Reset Button (Sibionics only - full width, styled like "Previous calibrations")
             if (sensor.isSibionics) {
+                if (sensor.isSibionics2 && !sensor.isCloneSource) {
+                    SibionicsProbeStatus(sensor.serial, viewModel)
+                }
                 FilledTonalButton(
                     onClick = { showUnifiedResetDialog = true },
                     modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),

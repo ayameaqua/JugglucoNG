@@ -56,12 +56,24 @@ The binary is not redistributed. The harness is an analysis tool, not shipped
 application code. Its outputs verify factory-code decoding, not end-to-end
 BLE or glucose-display agreement with a live official app.
 
+The two observed printed P2 serials are also supported through the existing
+P-format short-code decoder: `("1" + serial.dropLast(1)).takeLast(11).take(8)`
+gives `0201675K` and `0651231G`, respectively, and the same 1.73 / 1.75 values.
+The current-probe entry accepts these only inside a validated complete GS1 label;
+an unframed transmitter connection serial cannot stand in for probe calibration.
+
 ## Setup and continuation
 
 Only validated SIBIONICS2 QR labels use this decoder. The full probe is stored
 separately from sensor identity and the legacy short code; sensor aliases and
 BLE matching retain their existing meanings. Existing explicit user sensitivity
 overrides still win. Unrecognized codes retain the previous fallback behavior.
+
+The SIBIONICS2 sensor detail page now includes a current-probe scan, gallery and
+paste entry. Explicitly binding or correcting this wear preserves its transmitter
+record, start time, cursor and source journal. First binding an unknown probe code
+does not establish a new wear; the separate setup path still treats a known probe
+identity changing as a new probe, even if its decoded coefficient is unchanged.
 
 Old installations did not retain the full code, so those records need a rescan.
 A rescan updates an active callback, including one retained under a BLE alias.

@@ -4,6 +4,13 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class SibionicsProbeLifecycleTest {
+    @Test fun firstBindingOfPreviouslyUnknownProbeDoesNotProveAnotherWear() {
+        val code = "EU2VCZUQPSHD5Q"
+        assertFalse(SibionicsSessionPolicy.probeIdentityChanged(null, code))
+        assertFalse(SibionicsSessionPolicy.probeIdentityChanged("", code))
+        assertFalse(SibionicsSessionPolicy.probeIdentityChanged(" ", code))
+        assertTrue(SibionicsSessionPolicy.probeIdentityChanged(code, "145TUMXYK4S46V"))
+    }
     @Test fun differentProbeCodesWithIdenticalFactorySensitivityStillChangeIdentity() {
         val fixture = javaClass.getResourceAsStream("/sibionics/probe-sensitivity-native.tsv")!!.bufferedReader().use { it.readLines() }
         val codes = fixture.filter { !it.startsWith("#") && it.isNotBlank() }.map { it.split('\t') }.distinctBy { it[0] }.groupBy { it[1] }.values.first { it.size > 1 }

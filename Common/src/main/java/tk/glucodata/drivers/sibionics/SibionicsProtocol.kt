@@ -371,7 +371,7 @@ object SibionicsSensitivity {
         variant: SibionicsConstants.Variant,
         probeCode: String? = null,
     ): Float =
-        (if (variant == SibionicsConstants.Variant.SIBIONICS2) SibionicsProbeSensitivity.tryDecode(probeCode) else null)
+        (if (variant == SibionicsConstants.Variant.SIBIONICS2) SibionicsProbeCalibration.sensitivity(probeCode) else null)
             ?: tryDecode(shortCode)
             // The legacy library retries this variant token when QR initialization
             // rejects an otherwise valid sensor identity (notably V120 XPT codes).

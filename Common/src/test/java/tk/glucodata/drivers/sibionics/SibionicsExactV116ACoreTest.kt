@@ -114,6 +114,23 @@ class SibionicsExactV116ACoreTest {
     }
 
     @Test
+    fun changedFactorySensitivityCannotResumeOldCheckpointAfterProcessRestart() {
+        val source = SibionicsExactV116ACore(decodedSensitivity = 1.44f)
+        startupRows().take(70).forEach { source.process(it.rawMmol, it.temperatureC, it.index) }
+        val snapshot = source.snapshot()
+        assertTrue(SibionicsExactV116ACore(1.44f).restore(snapshot))
+        val rows = startupRows()
+        val firstReplay = SibionicsExactV116ACore(1.73f)
+        val restartedReplay = SibionicsExactV116ACore(1.73f)
+        assertFalse(restartedReplay.restore(snapshot))
+        for (row in rows) {
+            assertEquals(firstReplay.process(row.rawMmol, row.temperatureC, row.index),
+                restartedReplay.process(row.rawMmol, row.temperatureC, row.index))
+        }
+        assertEquals(firstReplay.stateHash(), restartedReplay.stateHash())
+    }
+
+    @Test
     fun v120FamiliesUseV116AAndStillEmitEveryMinute() {
         val rows = startupRows()
         for (variant in listOf(

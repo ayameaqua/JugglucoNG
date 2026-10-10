@@ -32,6 +32,39 @@ class SibionicsProbeSensitivityTest {
     }
 
     @Test
+    fun legacyP2PrintedSerialAgreesWithItsNativeDecodedFactoryCode() {
+        // Independent observed label pairs documented in the native oracle evidence.
+        for ((printed, encrypted, expected) in listOf(
+            Triple("P2260201675KKW78", "EU2VCZUQPSHD5Q", 1.73f),
+            Triple("P2250651231GCU24", "145TUMXYK4S46V", 1.75f),
+        )) {
+            assertEquals(expected, SibionicsProbeCalibration.sensitivity(printed)!!, 0.00001f)
+            assertEquals(SibionicsProbeSensitivity.tryDecode(encrypted), SibionicsProbeCalibration.sensitivity(printed))
+            assertEquals(expected, SibionicsSensitivity.sensitivityFor("0P225043", variant, printed), 0.00001f)
+        }
+        for (invalid in listOf("P225043JMV", "P2260201675K", "P2260201675QKW78", "XPT1invalid", "P2260201675kKW78")) {
+            assertNull(invalid, SibionicsProbeCalibration.sensitivity(invalid))
+        }
+    }
+
+    @Test
+    fun probeEntryRequiresFactoryChecksumOrValidFullGs1Label() {
+        val label = "\u001D0106972831641476112602081727080710LT46260201C\u001D21"
+        for ((code, sensitivity) in listOf("EU2VCZUQPSHD5Q" to 1.73f, "P2260201675KKW78" to 1.73f)) {
+            val decoded = SibionicsRegistry.decodeProbeQr(label + code)!!
+            assertEquals(code, decoded.code)
+            assertEquals(sensitivity, decoded.sensitivity, 0.00001f)
+            assertEquals(decoded, SibionicsRegistry.decodeProbeQr("]d2" + (label + code).lowercase()))
+            assertNull(SibionicsRegistry.decodeProbeQr(label.replace("1476", "1477") + code))
+        }
+        assertNotNull(SibionicsRegistry.decodeProbeQr(" eu2vczuqpshd5q "))
+        assertNull(SibionicsRegistry.decodeProbeQr("EU2VCZUQPSHD50"))
+        assertNull(SibionicsRegistry.decodeProbeQr("P225043JMV"))
+        assertNull(SibionicsRegistry.decodeProbeQr("P2260201675KKW78"))
+        assertNull(SibionicsRegistry.decodeProbeQr(label + "P225043JMV"))
+    }
+
+    @Test
     fun legacyAndUnrecognizedCodesKeepTheirExistingCalibration() {
         val shortCode = "0683013A"
         assertEquals(SibionicsSensitivity.tryDecode(shortCode)!!,

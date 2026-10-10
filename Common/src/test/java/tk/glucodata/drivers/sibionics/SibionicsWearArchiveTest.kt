@@ -19,6 +19,7 @@ class SibionicsWearArchiveTest {
     @Before fun setup() {
         context = ApplicationProvider.getApplicationContext()
         context.getSharedPreferences("tk.glucodata_preferences", 0).edit().clear().putString(codeKey, "previous-probe")
+            .putLong("sibionics_probe_qr_at_$id", 1_780_000_000_000L)
             .putFloat("sibionics_managed_algorithm_sensitivity_$id", 1.3f)
             .putInt("sibionics_managed_last_index_$id", 20000).commit()
     }
@@ -28,6 +29,9 @@ class SibionicsWearArchiveTest {
         assertNull(SibionicsRegistry.loadProbeCode(context, id))
         assertFalse(p.contains("sibionics_managed_algorithm_sensitivity_$id"))
         assertEquals(0, SibionicsRegistry.loadLastIndex(context, id))
+        assertFalse(p.contains("sibionics_probe_qr_at_$id"))
+        assertTrue(p.all.any { (k, v) -> k.startsWith("sibionics_archive_") &&
+            k.endsWith("sibionics_probe_qr_at_$id") && v == 1_780_000_000_000L })
         assertTrue(p.all.any { (k, v) -> k.startsWith("sibionics_archive_") && k.endsWith(codeKey) && v == "previous-probe" })
     }
     @Test fun explicitlyNewCodeKeepsNewIdentityButDoesNotInheritManualSensitivity() {
@@ -35,6 +39,7 @@ class SibionicsWearArchiveTest {
         p.edit().putString(codeKey, "new-probe").putString("sibionics_previous_probe_$id", "previous-probe").commit()
         SibionicsRegistry.archiveProbe(context, id, false)
         assertEquals("new-probe", SibionicsRegistry.loadProbeCode(context, id))
+        assertFalse(p.contains("sibionics_probe_qr_at_$id"))
         assertFalse(p.contains("sibionics_managed_algorithm_sensitivity_$id"))
         assertTrue(p.all.any { (k, v) -> k.startsWith("sibionics_archive_") && k.endsWith(codeKey) && v == "previous-probe" })
     }

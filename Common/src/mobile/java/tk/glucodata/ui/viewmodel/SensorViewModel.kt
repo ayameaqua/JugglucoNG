@@ -1086,6 +1086,19 @@ class SensorViewModel : ViewModel() {
     fun updateAnytimeProbeQr(serial: String, raw: String): Boolean =
         tk.glucodata.drivers.anytime.AnytimeRegistry.updateCurrentProbeQr(tk.glucodata.Applic.app, serial, raw)
 
+    fun sibionicsProbeStatus(serial: String): String =
+        (findGatt(serial) as? tk.glucodata.drivers.sibionics.SibionicsBleManager)?.getProbeCalibrationStatus()
+            ?: tk.glucodata.drivers.sibionics.SibionicsRegistry.savedProbeStatus(Applic.app, serial) +
+                "\n驱动尚未运行，已保存参数不代表当前计算已采用"
+
+    suspend fun updateSibionicsProbeQr(serial: String, raw: String): Boolean =
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            runCatching {
+                tk.glucodata.drivers.sibionics.SibionicsRegistry.updateCurrentProbeQr(Applic.app, serial, raw)
+            }.onFailure { tk.glucodata.Log.stack("SensorVM", "current Sibionics probe update failed", it) }
+                .getOrDefault(false)
+        }
+
     fun requestAnytimeHistory(serial: String): Boolean {
         val driver = findGatt(serial) as? AnytimeDriver ?: return false
         return runCatching { driver.requestHistoryBackfill() }

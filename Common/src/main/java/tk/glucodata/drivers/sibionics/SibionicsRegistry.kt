@@ -182,7 +182,7 @@ object SibionicsRegistry {
             qrDerived = framedQrName != null,
             probeCode = if (variant == SibionicsConstants.Variant.SIBIONICS2) {
                 supportedQrMatch(rawInput)?.groupValues?.get(2)
-                    ?.takeIf { SibionicsProbeSensitivity.tryDecode(it) != null }.orEmpty()
+                    ?.takeIf { SibionicsProbeCalibration.sensitivity(it) != null }.orEmpty()
             } else "",
         )
     }
@@ -623,6 +623,7 @@ object SibionicsRegistry {
             if (!previous.isNullOrBlank()) e.putString("sibionics_archive_${wear}_${PREF_PROBE_CODE_PREFIX}$storageId", previous)
             e.putInt(PREF_LAST_INDEX_PREFIX + storageId, 0)
                 .remove(PREF_ALGORITHM_STATE_PREFIX + storageId).remove(PREF_START_TIME_PREFIX + storageId)
+                .remove("sibionics_probe_qr_at_$storageId")
                 .remove(PREF_LAST_READING_TIME_PREFIX + storageId).remove(PREF_LAST_GLUCOSE_MGDL_PREFIX + storageId).remove(PREF_LAST_RAW_MGDL_PREFIX + storageId)
                 .remove("sibionics_previous_probe_$storageId")
             e.remove("sibionics_probe_changed_$storageId").remove("sibionics_maintenance_reset_at_$storageId")
@@ -903,6 +904,77 @@ object SibionicsRegistry {
         // that record with a QR identity. Calibration belongs to the current record.
         val canonicalId = findRecord(context, sensorId)?.sensorId ?: sensorId
         return prefs(context).getString(PREF_PROBE_CODE_PREFIX + canonicalId, null)
+    }
+
+    data class ProbeQr(val code: String, val sensitivity: Float)
+
+    /** Full GS1 probe label or the checksummed 14-character factory code. */
+    fun decodeProbeQr(raw: String?): ProbeQr? {
+        val compact = raw.orEmpty().trim().uppercase(java.util.Locale.US)
+        val code = compact.takeIf { SibionicsProbeSensitivity.tryDecode(it) != null }
+            ?: supportedQrMatch(raw)?.groupValues?.get(2) ?: return null
+        val sensitivity = SibionicsProbeCalibration.sensitivity(code) ?: return null
+        return ProbeQr(code, sensitivity)
+    }
+
+    /** Explicitly binds parameters to this wear, without replacing transmitter identity. */
+    internal fun persistCurrentProbeQr(context: Context, sensorId: String, raw: String,
+        at: Long = System.currentTimeMillis(), aliases: Set<String> = emptySet()): Boolean {
+        val parsed = decodeProbeQr(raw) ?: return false
+        val record = findRecord(context, sensorId) ?: return false
+        if (record.variant != SibionicsConstants.Variant.SIBIONICS2 || probeChanged(context, sensorId)) return false
+        val id = record.sensorId
+        val p = prefs(context)
+        val old = loadProbeCode(context, sensorId)
+        if (old == parsed.code) {
+            // First explicit confirmation of a legacy/setup entry records its
+            // provenance without disturbing a matching algorithm checkpoint.
+            return p.getLong("sibionics_probe_qr_at_$id", 0L) > 0L ||
+                p.edit().putLong("sibionics_probe_qr_at_$id", at).commit()
+        }
+        val storageIds = (aliases + sensorId + id + record.legacyNativeName).filter { it.isNotBlank() }
+        val override = storageIds.firstNotNullOfOrNull { loadAlgorithmSensitivityOverride(context, it) }
+        val oldSensitivity = override ?: SibionicsSensitivity.sensitivityFor(record.shortCode, record.variant, old)
+        val newSensitivity = override ?: parsed.sensitivity
+        val edit = p.edit().putString(PREF_PROBE_CODE_PREFIX + id, parsed.code)
+            .putLong("sibionics_probe_qr_at_$id", at)
+        if (!old.isNullOrBlank()) {
+            val revision = java.util.UUID.randomUUID().toString()
+            edit.putString("sibionics_probe_qr_revision_${revision}_$id", old)
+        }
+        if (oldSensitivity != newSensitivity) for (storageId in storageIds) {
+            // If the process dies before the callback reconfigures, its next
+            // startup must replay source inputs, not restore old coefficients.
+            edit.remove(PREF_ALGORITHM_STATE_PREFIX + storageId)
+                .remove(PREF_LOCAL_REBUILD_FINGERPRINT_PREFIX + storageId)
+        }
+        return edit.commit()
+    }
+
+    fun updateCurrentProbeQr(context: Context, sensorId: String, raw: String): Boolean {
+        val record = findRecord(context, sensorId) ?: return false
+        val callbacks = SensorBluetooth.mygatts().orEmpty().filterIsInstance<SibionicsBleManager>()
+            .filter { record.matchesId(it.SerialNumber) || it.matchesManagedSensorId(sensorId) }
+        if (!persistCurrentProbeQr(context, sensorId, raw,
+                aliases = callbacks.mapNotNull { it.SerialNumber }.toSet())) return false
+        callbacks.forEach { it.refreshProbeCalibration(context, bindToCurrentWear = true) }
+        ManagedSensorUiSignals.markDeviceListDirty()
+        UiRefreshBus.requestStatusRefresh()
+        return true
+    }
+
+    fun savedProbeStatus(context: Context, sensorId: String): String {
+        val record = findRecord(context, sensorId) ?: return "未找到本机传感器"
+        val code = loadProbeCode(context, sensorId)
+        val factory = SibionicsProbeCalibration.sensitivity(code)
+        val at = prefs(context).getLong("sibionics_probe_qr_at_${record.sensorId}", 0L)
+        val hash = code?.let { java.security.MessageDigest.getInstance("SHA-256")
+            .digest(it.toByteArray()).take(6).joinToString("") { b -> "%02x".format(b.toInt() and 255) } }
+        return if (factory == null) "探头校准码：未保存有效工厂参数；连接码不提供探头校准"
+        else "探头校准码：已保存 · 标识 $hash\n工厂初始灵敏度：%.2f".format(factory) +
+            if (at > 0L) "\n归属：用户指定当前探头（请核对包装）\n录入／确认：" +
+                java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss XXX", java.util.Locale.getDefault()).format(java.util.Date(at))
+            else "\n归属：来自添加流程或旧记录，请核对当前探头\n录入时间：未保存"
     }
 
     fun saveShortCode(context: Context, sensorId: String, shortCode: String) {
