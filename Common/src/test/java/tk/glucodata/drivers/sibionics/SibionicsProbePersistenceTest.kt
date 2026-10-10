@@ -8,6 +8,27 @@ import org.junit.Test
 
 class SibionicsProbePersistenceTest {
     @Test
+    fun statusReadsCanonicalQrAndAliasWearWithoutChangingPersistedState() {
+        val prefs = FakePreferences()
+        val context = PrefsContext(prefs)
+        val record = SibionicsRegistry.ensureSensorRecord(context, "P225043JMV", null, "P225043JMV",
+            SibionicsConstants.Variant.SIBIONICS2)
+        val alias = record.displayName
+        val start = 1_790_000_000_000L
+        SibionicsRegistry.saveStartTimeMs(context, alias, start)
+        assertTrue(SibionicsRegistry.persistCurrentProbeQr(context, alias, "EU2VCZUQPSHD5Q", at = start + 60_000L))
+        val before = HashMap(prefs.values)
+        val snapshot = SibionicsRegistry.probeStatusSnapshot(context, alias)!!
+        assertEquals(record.sensorId, snapshot.sensorId)
+        assertEquals(start, snapshot.startTimeMs)
+        assertEquals("EU2VCZUQPSHD5Q", snapshot.code)
+        assertEquals(start + 60_000L, snapshot.confirmedAtMs)
+        assertFalse(SibionicsRegistry.savedProbeStatus(context, alias).contains(snapshot.code!!))
+        assertTrue(SibionicsRegistry.savedProbeStatus(context, alias, true).contains(snapshot.code!!))
+        assertEquals(before, prefs.values)
+    }
+
+    @Test
     fun activeBleAliasResolvesCalibrationAfterQrReplacesItsRecord() {
         val context = PrefsContext(FakePreferences())
         val variant = SibionicsConstants.Variant.SIBIONICS2

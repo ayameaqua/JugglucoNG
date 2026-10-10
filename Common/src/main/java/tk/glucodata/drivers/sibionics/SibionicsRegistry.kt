@@ -963,19 +963,18 @@ object SibionicsRegistry {
         return true
     }
 
-    fun savedProbeStatus(context: Context, sensorId: String): String {
-        val record = findRecord(context, sensorId) ?: return "未找到本机传感器"
-        val code = loadProbeCode(context, sensorId)
-        val factory = SibionicsProbeCalibration.sensitivity(code)
-        val at = prefs(context).getLong("sibionics_probe_qr_at_${record.sensorId}", 0L)
-        val hash = code?.let { java.security.MessageDigest.getInstance("SHA-256")
-            .digest(it.toByteArray()).take(6).joinToString("") { b -> "%02x".format(b.toInt() and 255) } }
-        return if (factory == null) "探头校准码：未保存有效工厂参数；连接码不提供探头校准"
-        else "探头校准码：已保存 · 标识 $hash\n工厂初始灵敏度：%.2f".format(factory) +
-            if (at > 0L) "\n归属：用户指定当前探头（请核对包装）\n录入／确认：" +
-                java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss XXX", java.util.Locale.getDefault()).format(java.util.Date(at))
-            else "\n归属：来自添加流程或旧记录，请核对当前探头\n录入时间：未保存"
+    internal fun probeStatusSnapshot(context: Context, sensorId: String): SibionicsProbeStatusText.Saved? {
+        val record = findRecord(context, sensorId) ?: return null
+        val start = loadStartTimeMs(context, sensorId).takeIf { it > 0L }
+            ?: loadStartTimeMs(context, record.sensorId)
+        return SibionicsProbeStatusText.Saved(record.sensorId, start, loadProbeCode(context, sensorId),
+            prefs(context).getLong("sibionics_probe_qr_at_${record.sensorId}", 0L), probeChanged(context, sensorId))
     }
+
+    @JvmOverloads
+    fun savedProbeStatus(context: Context, sensorId: String, showProbeCode: Boolean = false): String =
+        probeStatusSnapshot(context, sensorId)?.let { SibionicsProbeStatusText.format(it, showCode = showProbeCode) }
+            ?: "未找到本机传感器"
 
     fun saveShortCode(context: Context, sensorId: String, shortCode: String) {
         if (shortCode.isBlank()) return

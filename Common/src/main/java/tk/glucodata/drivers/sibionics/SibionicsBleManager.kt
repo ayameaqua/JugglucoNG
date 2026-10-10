@@ -2749,28 +2749,36 @@ class SibionicsBleManager(
 
     override fun getAlgorithmSensitivity(): Float = sensitivity
 
-    fun getProbeCalibrationStatus(): String {
+    @JvmOverloads
+    fun getProbeCalibrationStatus(showProbeCode: Boolean = false): String {
         val ctx = Applic.app ?: return "驱动尚未运行"
-        val saved = SibionicsRegistry.loadProbeCode(ctx, SerialNumber)
-        val factory = SibionicsProbeCalibration.sensitivity(probeCode)
-        val source = when {
-            sensitivityOverride != null -> "手动覆盖（工厂码不会自动取消覆盖）"
-            factory != null -> "已载入的探头工厂码"
-            SibionicsSensitivity.tryDecode(shortCode) != null -> "旧式短码参数（尚未绑定当前探头二维码）"
-            else -> "备用默认参数（尚未绑定当前探头二维码）"
+        val saved = SibionicsRegistry.probeStatusSnapshot(ctx, SerialNumber)
+            ?: return "未找到本机传感器"
+        val matches = SibionicsRegistry.loadLocalRebuildFingerprint(ctx, SerialNumber)
+            .takeIf { it.isNotBlank() } == algorithmRebuildFingerprint(algorithmSelection)
+        val runtime = synchronized(algorithmLock) {
+            val observation = algorithm.latestSensorObservation()
+            SibionicsProbeStatusText.Runtime(
+                code = probeCode,
+                configuredSensitivity = algorithm.configuredProbeSensitivity(),
+                manualOverride = sensitivityOverride != null,
+                legacyShortCode = SibionicsSensitivity.tryDecode(shortCode) != null,
+                algorithm = "${if (variant.usesV116AAlgorithm) "V116A" else "V115G"} · ${algorithmSelection.name}",
+                continuous = algorithm.hasExactContinuation(lastIndex),
+                sampleIndex = observation?.sensorAgeMinutes,
+                activeSensitivity = observation?.activeSensitivity,
+                recovering = algorithmRehydrating || startupRecoveryRunning || startupRecoveryIndex > 1,
+                missingSourceIndex = journalBackfillFromIndex,
+                historyTransferActive = historyTransferActive,
+                rebuildPending = forceInitialLocalRebuild || rebuildAfterNextSourceSample ||
+                    (lastIndex > 1 && !matches),
+                historyConfigurationMatches = matches,
+            )
         }
-        val observation = synchronized(algorithmLock) { algorithm.latestSensorObservation() }
-        val recovery = algorithmRehydrating || startupRecoveryRunning || forceInitialLocalRebuild
-        return SibionicsRegistry.savedProbeStatus(ctx, SerialNumber) +
-            "\n运行初始灵敏度：%.2f · %s".format(sensitivity, source) +
-            "\n算法：V116A · ${algorithmSelection.name}" +
-            when {
-                saved != probeCode -> "\n状态：参数已保存，等待运行驱动接收"
-                recovery -> "\n状态：正在按本周期原始采样重建连续算法，原有血糖暂时保留"
-                factory == null -> "\n状态：当前结果缺少本探头工厂校准码"
-                else -> "\n状态：驱动已接收探头参数；请核对下一条实时记录"
-            } +
-            (observation?.let { "\n最近内部状态：idx=${it.sensorAgeMinutes} · 有效灵敏度=%.3f".format(it.activeSensitivity) } ?: "\n最近内部状态：暂无可核对采样")
+        return SibionicsProbeStatusText.format(
+            if (startTimeMs > 0L) saved.copy(startTimeMs = startTimeMs) else saved,
+            runtime, showCode = showProbeCode,
+        )
     }
 
     override fun getAutomaticAlgorithmSensitivity(): Float = automaticSensitivity

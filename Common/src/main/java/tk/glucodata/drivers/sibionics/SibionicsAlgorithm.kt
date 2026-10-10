@@ -489,6 +489,9 @@ class SibionicsAlgorithmContext(
      * input the deconvolution stage recorded — but the quantity is identical:
      * sensor-state compensation applied, deconvolution not yet.
      */
+    /** Exact coefficient passed to configure(), before the core's internal transformations. */
+    internal fun configuredProbeSensitivity(): Float = configuredSensitivity
+
     internal fun latestSensorObservation(): SibionicsSensorObservation? = when (family) {
         AlgorithmFamily.V115G -> v115Core.latestSensorObservation
         AlgorithmFamily.V116A -> v116Core.latestSensorObservation

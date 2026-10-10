@@ -3,6 +3,7 @@ package tk.glucodata.ui
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -15,18 +16,24 @@ import tk.glucodata.ui.viewmodel.SensorViewModel
 
 @Composable
 internal fun SibionicsProbeStatus(serial: String, model: SensorViewModel) {
-    var status by remember(serial) { mutableStateOf(model.sibionicsProbeStatus(serial)) }
+    var showProbeCode by remember(serial) { mutableStateOf(false) }
+    var status by remember(serial, showProbeCode) { mutableStateOf(model.sibionicsProbeStatus(serial, showProbeCode)) }
     var editing by remember(serial) { mutableStateOf(false) }
     var raw by remember(serial) { mutableStateOf("") }
     var message by remember(serial) { mutableStateOf("") }
     var saving by remember(serial) { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val parsed = remember(raw) { SibionicsRegistry.decodeProbeQr(raw) }
-    LaunchedEffect(serial) { while (true) { status = model.sibionicsProbeStatus(serial); delay(2_000) } }
+    LaunchedEffect(serial, showProbeCode) {
+        while (true) { status = model.sibionicsProbeStatus(serial, showProbeCode); delay(2_000) }
+    }
     ElevatedCard(Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("探头二维码与算法状态", style = MaterialTheme.typography.titleMedium)
-            Text(status, style = MaterialTheme.typography.bodySmall)
+            SelectionContainer { Text(status, style = MaterialTheme.typography.bodySmall) }
+            TextButton(onClick = { showProbeCode = !showProbeCode }) {
+                Text(if (showProbeCode) "隐藏探头识别码" else "查看／复制探头识别码")
+            }
             TextButton(onClick = { editing = true; raw = ""; message = "" }) {
                 Text("扫描或更新当前探头二维码")
             }
@@ -57,7 +64,7 @@ internal fun SibionicsProbeStatus(serial: String, model: SensorViewModel) {
                     if (model.updateSibionicsProbeQr(serial, submittedRaw)) {
                         editing = false; raw = ""
                         message = "探头参数已保存，驱动将核对并按需连续重建。手动灵敏度覆盖继续保留；请核对运行初始灵敏度及状态，完成后比较同一采样时刻。"
-                        status = model.sibionicsProbeStatus(serial)
+                        status = model.sibionicsProbeStatus(serial, showProbeCode)
                     } else message = "未能更新。请核对传感器和探头码；待处理的新探头切换需先完成，血糖历史仍保留。"
                 } finally { saving = false }
             }
