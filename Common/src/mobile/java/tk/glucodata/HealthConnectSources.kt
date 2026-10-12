@@ -74,6 +74,9 @@ internal class HealthConnectSources(context: Context) :
     @Synchronized fun wearAt(serial: String, epochMs: Long): String? = readableDatabase.query("wears", arrayOf("id"),
         "serial=? AND start_ms<=?", arrayOf(serial, epochMs.toString()), null, null, "start_ms DESC", "1").use { if (it.moveToFirst()) it.getString(0) else null }
 
+    @Synchronized fun knownWears(serial: String): List<Pair<String, Long>> = readableDatabase.query("wears", arrayOf("id", "start_ms"),
+        "serial=?", arrayOf(serial), null, null, "start_ms").use { c -> buildList { while (c.moveToNext()) add(c.getString(0) to c.getLong(1)) } }
+
     @Synchronized fun needsReplay(source: Source): Boolean = readableDatabase.query("sources", arrayOf("published"), "serial=?", arrayOf(source.serial), null, null, null).use {
         !it.moveToFirst() || it.getString(0) != source.fingerprint
     }

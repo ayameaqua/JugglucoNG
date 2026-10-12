@@ -13,7 +13,7 @@ import java.time.Instant
 import java.util.UUID
 
 /** Separate database: Samsung reads cannot hold a CGM/Health Connect transaction. */
-class HealthInsightStore(context: Context) : SQLiteOpenHelper(context.applicationContext, "health-insights.db", null, 1) {
+class HealthInsightStore(context: Context) : SQLiteOpenHelper(context.applicationContext, "health-insights.db", null, 2) {
     private val prefs = context.getSharedPreferences("health_insights", Context.MODE_PRIVATE)
     private val secret: ByteArray = synchronized(HealthInsightStore::class.java) {
         prefs.getString("alias_secret", null)?.let { android.util.Base64.decode(it, 0) }
@@ -27,9 +27,14 @@ class HealthInsightStore(context: Context) : SQLiteOpenHelper(context.applicatio
         db.execSQL("CREATE TABLE staged(run TEXT,id TEXT,kind TEXT,json TEXT,at INTEGER,deleted INTEGER,PRIMARY KEY(run,id))")
         db.execSQL("CREATE TABLE staged_series(run TEXT,parent TEXT,idx INTEGER,json TEXT,PRIMARY KEY(run,parent,idx))")
         db.execSQL("CREATE TABLE staged_relations(run TEXT,parent TEXT,child TEXT,relation TEXT,PRIMARY KEY(run,parent,child,relation))")
-        db.execSQL("CREATE TABLE sync(kind TEXT PRIMARY KEY,success INTEGER NOT NULL DEFAULT 0,status TEXT,error TEXT,from_ms INTEGER,to_ms INTEGER)")
+        db.execSQL("CREATE TABLE sync(kind TEXT PRIMARY KEY,success INTEGER NOT NULL DEFAULT 0,status TEXT,error TEXT,from_ms INTEGER,to_ms INTEGER,returned_count INTEGER,deleted_count INTEGER)")
     }
-    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) { error("Unexpected health cache migration") }
+    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+        if (oldVersion < 2) {
+            db.execSQL("ALTER TABLE sync ADD COLUMN returned_count INTEGER")
+            db.execSQL("ALTER TABLE sync ADD COLUMN deleted_count INTEGER")
+        }
+    }
     fun alias(provider: String, kind: String, uid: String): String {
         val mac = Mac.getInstance("HmacSHA256"); mac.init(SecretKeySpec(secret, "HmacSHA256"))
         return mac.doFinal("$provider\u0000$kind\u0000$uid".toByteArray()).take(16).joinToString("") { "%02x".format(it) }
@@ -61,6 +66,8 @@ class HealthInsightStore(context: Context) : SQLiteOpenHelper(context.applicatio
     @Synchronized fun complete(run: String, kind: HealthKind, from: Instant, until: Instant) {
         val db = writableDatabase; db.beginTransaction()
         try {
+            fun stagedCount(deleted: Int) = db.rawQuery("SELECT COUNT(*) FROM staged WHERE run=? AND kind=? AND deleted=?", arrayOf(run, kind.kind, deleted.toString())).use { it.moveToFirst(); it.getInt(0) }
+            val returned = stagedCount(0); val deleted = stagedCount(1)
             // Replace series atomically with each parent revision. Never infer deletion from an empty read.
             db.execSQL("DELETE FROM series WHERE parent IN (SELECT id FROM staged WHERE run=?)", arrayOf(run))
             db.execSQL("DELETE FROM records WHERE id IN (SELECT id FROM staged WHERE run=? AND deleted=1)", arrayOf(run))
@@ -68,7 +75,7 @@ class HealthInsightStore(context: Context) : SQLiteOpenHelper(context.applicatio
             db.execSQL("INSERT OR REPLACE INTO records SELECT id,kind,json,at FROM staged WHERE run=? AND deleted=0", arrayOf(run))
             db.execSQL("INSERT OR REPLACE INTO series SELECT parent,idx,json FROM staged_series WHERE run=? AND parent IN (SELECT id FROM staged WHERE run=? AND deleted=0)", arrayOf(run, run))
             db.execSQL("INSERT OR IGNORE INTO relations SELECT parent,child,relation FROM staged_relations WHERE run=? AND child IN (SELECT id FROM records) AND parent NOT IN (SELECT id FROM staged WHERE run=? AND deleted=1)", arrayOf(run, run))
-            db.insertWithOnConflict("sync", null, ContentValues().apply { put("kind", kind.kind); put("success", until.toEpochMilli()); put("status", "success"); putNull("error"); put("from_ms", from.toEpochMilli()); put("to_ms", until.toEpochMilli()) }, SQLiteDatabase.CONFLICT_REPLACE)
+            db.insertWithOnConflict("sync", null, ContentValues().apply { put("kind", kind.kind); put("success", until.toEpochMilli()); put("status", "success"); putNull("error"); put("from_ms", from.toEpochMilli()); put("to_ms", until.toEpochMilli()); put("returned_count", returned); put("deleted_count", deleted) }, SQLiteDatabase.CONFLICT_REPLACE)
             cleanup(db, run); db.setTransactionSuccessful()
         } finally { db.endTransaction() }
     }
@@ -81,13 +88,37 @@ class HealthInsightStore(context: Context) : SQLiteOpenHelper(context.applicatio
     }
     @Synchronized fun contains(id: String): Boolean = readableDatabase.rawQuery("SELECT 1 FROM records WHERE id=?", arrayOf(id)).use { it.moveToFirst() }
     @Synchronized fun cursor(kind: HealthKind): Long = readableDatabase.rawQuery("SELECT success FROM sync WHERE kind=?", arrayOf(kind.kind)).use { if (it.moveToFirst()) it.getLong(0) else 0L }
-    @Synchronized fun states(): List<JSONObject> = readableDatabase.rawQuery("SELECT kind,success,status,error,from_ms,to_ms FROM sync ORDER BY kind", null).use { c -> buildList { while (c.moveToNext()) add(JSONObject().put("kind", c.getString(0)).put("last_success_epoch_ms", c.getLong(1)).put("status", c.getString(2)).put("error", c.getString(3) ?: JSONObject.NULL).put("from_epoch_ms", c.getLong(4)).put("until_epoch_ms", c.getLong(5))) } }
+    @Synchronized fun states(): List<JSONObject> = readableDatabase.rawQuery("SELECT kind,success,status,error,from_ms,to_ms,returned_count,deleted_count FROM sync ORDER BY kind", null).use { c -> buildList { while (c.moveToNext()) {
+        val state = JSONObject().put("kind", c.getString(0)).put("last_success_epoch_ms", c.getLong(1)).put("status", c.getString(2)).put("error", c.getString(3) ?: JSONObject.NULL).put("from_epoch_ms", c.getLong(4)).put("until_epoch_ms", c.getLong(5))
+            .put("returned_count", if (c.isNull(6)) JSONObject.NULL else c.getInt(6)).put("deleted_count", if (c.isNull(7)) JSONObject.NULL else c.getInt(7))
+            .put("returned_count_basis", "distinct staged canonical upserts in last committed type refresh; includes direct/associated/change reads; not SDK page count")
+            .put("read_result", if (c.getString(2) != "success") c.getString(2) else if (c.isNull(6)) "legacy_count_unknown" else if (c.getInt(6) == 0) "success_no_records" else "success_with_records")
+        var count = 0; var start: Long? = null; var end: Long? = null; var firstDate: String? = null; var lastDate: String? = null
+        readableDatabase.rawQuery("SELECT json FROM records WHERE kind=?", arrayOf(c.getString(0))).use { rows -> while (rows.moveToNext()) {
+            count++; val time = JSONObject(rows.getString(0)).getJSONObject("time")
+            if (time.optString("basis") == "local_date") {
+                val date = time.getString("date"); firstDate = firstDate?.let { minOf(it, date) } ?: date; lastDate = lastDate?.let { maxOf(it, date) } ?: date
+            } else if (time.has("start_epoch_ms")) {
+                val a = time.getLong("start_epoch_ms"); val b = time.optLong("end_epoch_ms", a)
+                start = start?.let { minOf(it, a) } ?: a; end = end?.let { maxOf(it, b) } ?: b
+            }
+        } }
+        state.put("cached_count", count).put("cache_start_epoch_ms", start ?: JSONObject.NULL).put("cache_end_epoch_ms", end ?: JSONObject.NULL)
+            .put("cache_first_local_date", firstDate ?: JSONObject.NULL).put("cache_last_local_date", lastDate ?: JSONObject.NULL)
+            .put("cache_coverage_semantics", "retained bounds, not proof of continuous samples or full account coverage")
+        add(state)
+    } } }
     @Synchronized fun recent(from: Long): List<JSONObject> = readableDatabase.rawQuery("SELECT json FROM records WHERE at>=? ORDER BY at DESC LIMIT 150", arrayOf(from.toString())).use { c -> buildList { while (c.moveToNext()) add(JSONObject(c.getString(0))) } }
     /** Synchronous streaming snapshot under this cache's lock; no live CGM database lock. */
     @Synchronized fun snapshot(records: Writer, series: Writer, relations: Writer): Int {
         var count = 0
-        readableDatabase.rawQuery("SELECT json FROM records ORDER BY kind,at,id", null).use { c -> while (c.moveToNext()) { records.write(c.getString(0)); records.write("\n"); count++ } }
-        readableDatabase.rawQuery("SELECT json FROM series ORDER BY parent,idx", null).use { c -> while (c.moveToNext()) { series.write(c.getString(0)); series.write("\n") } }
+        readableDatabase.rawQuery("SELECT id,json FROM records ORDER BY kind,at,id", null).use { c -> while (c.moveToNext()) {
+            val row = JSONObject(c.getString(1)); val projection = SamsungNormalization.Projection(row)
+            readableDatabase.rawQuery("SELECT json FROM series WHERE parent=? ORDER BY idx", arrayOf(c.getString(0))).use { children -> while (children.moveToNext()) {
+                val child = JSONObject(children.getString(0)); projection.child(child); series.write(child.toString()); series.write("\n")
+            } }
+            records.write(projection.finish().toString()); records.write("\n"); count++
+        } }
         readableDatabase.rawQuery("SELECT parent,child,relation FROM relations ORDER BY parent,child", null).use { c -> while (c.moveToNext()) { relations.write(JSONObject().put("parent_record_id", c.getString(0)).put("record_id", c.getString(1)).put("relation", c.getString(2)).toString()); relations.write("\n") } }
         return count
     }

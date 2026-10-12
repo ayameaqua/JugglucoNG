@@ -41,6 +41,8 @@ data class HistoryIndexRow(
     val sensorSerial: String,
 )
 
+data class HealthDisplayLink(val minuteMs: Long, val serial: String, val candidateCount: Int, val sampleMs: Long?)
+
 /**
  * The readings table summarised: enough to tell an append from a rewrite.
  * Nullable aggregates are null on an empty table.

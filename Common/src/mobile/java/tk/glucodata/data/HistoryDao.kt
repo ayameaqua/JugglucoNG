@@ -170,6 +170,26 @@ interface HistoryDao {
 
     @Query("""
         SELECT * FROM history_readings
+        WHERE firstStoredAt <= :cutoff
+          AND (timestamp > :afterTime OR (timestamp = :afterTime AND sensorSerial > :afterSensor))
+        ORDER BY timestamp, sensorSerial LIMIT :limit
+    """)
+    suspend fun healthExportTimePage(afterTime: Long, afterSensor: String, cutoff: Long, limit: Int): List<HistoryReading>
+
+    /** Join display minutes without rounding or rewriting the measurement's timestamp. */
+    @Query("""
+        SELECT d.timestamp AS minuteMs, d.sensorSerial AS serial, COUNT(h.id) AS candidateCount,
+               MIN(h.timestamp) AS sampleMs
+        FROM reading_display d LEFT JOIN history_readings h
+          ON h.sensorSerial = d.sensorSerial AND h.timestamp >= d.timestamp
+          AND h.timestamp < d.timestamp + 60000 AND h.firstStoredAt <= :cutoff
+        WHERE d.timestamp > :afterMinute AND d.timestamp <= :throughMinute
+        GROUP BY d.timestamp, d.sensorSerial
+    """)
+    suspend fun healthDisplayLinks(afterMinute: Long, throughMinute: Long, cutoff: Long): List<HealthDisplayLink>
+
+    @Query("""
+        SELECT * FROM history_readings
         WHERE timestamp >= :startTime
           AND timestamp <= :endTime
         ORDER BY timestamp ASC

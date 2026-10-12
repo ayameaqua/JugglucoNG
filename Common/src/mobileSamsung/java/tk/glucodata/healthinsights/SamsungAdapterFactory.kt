@@ -69,7 +69,10 @@ private class OfficialSamsungReader(private val context: Context) : SamsungReadA
         row.put("metrics", HealthCanonical.metrics(fields, kind.kind)).put("source_updated_at_utc", data.updateTime?.toString() ?: JSONObject.NULL)
         row.getJSONObject("source").put("app_id", data.dataSource?.appId ?: "com.sec.android.app.shealth")
             .put("device_alias", data.dataSource?.let { store.alias("samsung_health", "device", it.deviceId) } ?: JSONObject.NULL)
-        store.stage(run, kind, row, HealthCanonical.splitSeries(row, fields))
+        val series = HealthCanonical.splitSeries(row, fields)
+        val projection = SamsungNormalization.Projection(row)
+        series.forEach(projection::child)
+        store.stage(run, kind, projection.finish(), series)
     }
     private fun requestFor(kind: HealthKind, from: Instant, until: Instant, token: String?): ReadDataRequest<HealthDataPoint> {
         @Suppress("UNCHECKED_CAST")
@@ -219,7 +222,9 @@ private class OfficialSamsungReader(private val context: Context) : SamsungReadA
                 if (day == until.atZone(zone).toLocalDate()) row.getJSONObject("quality").getJSONArray("flags").put("partial_day")
             }
             row.getJSONObject("attributes").put("sdk_fields", fields)
-            store.stage(run, kind, row)
+            // An empty successful aggregate response is not a zero measurement.
+            if (fields.keys().asSequence().any { fields.optJSONArray(it)?.length()?.let { n -> n > 0 } == true })
+                store.stage(run, kind, SamsungNormalization.Projection(row).finish())
             day = day.plusDays(1)
         }
     }

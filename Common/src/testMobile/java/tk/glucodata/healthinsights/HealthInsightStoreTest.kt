@@ -64,6 +64,38 @@ class HealthInsightStoreTest {
             assertEquals(until.toEpochMilli(), store.cursor(HealthKind.HEART_RATE))
         }
     }
+    @Test fun refreshCountDistinguishesEmptySuccessFromRetainedCacheAndSurvivesDenial() {
+        val run = store.begin(); store.stage(run, HealthKind.HEART_RATE, row("cached")); store.stage(run, HealthKind.HEART_RATE, row("cached"))
+        store.complete(run, HealthKind.HEART_RATE, from, until)
+        assertEquals(1, store.states().single().getInt("returned_count"))
+        store.complete(store.begin(), HealthKind.HEART_RATE, from, until)
+        val state = store.states().single()
+        assertEquals("success_no_records", state.getString("read_result"))
+        assertEquals(0, state.getInt("returned_count")); assertEquals(1, state.getInt("cached_count"))
+        assertEquals(from.toEpochMilli(), state.getLong("cache_start_epoch_ms"))
+        assertEquals(until.toEpochMilli(), state.getLong("cache_end_epoch_ms"))
+        store.fail(HealthKind.HEART_RATE,"denied","permission_denied")
+        assertEquals(0, store.states().single().getInt("returned_count"))
+        assertEquals(1, store.states().single().getInt("cached_count"))
+    }
+    @Test fun versionOneCacheMigratesAdditivelyKeepsDataSettingsAndLegacyCountsUnknown() {
+        store.writableDatabase // Open the lazily created cache before simulating a released schema.
+        store.close()
+        val ctx = ApplicationProvider.getApplicationContext<Context>()
+        val db = android.database.sqlite.SQLiteDatabase.openDatabase(ctx.getDatabasePath("health-insights.db").path,null,0)
+        db.execSQL("DROP TABLE sync")
+        db.execSQL("CREATE TABLE sync(kind TEXT PRIMARY KEY,success INTEGER NOT NULL DEFAULT 0,status TEXT,error TEXT,from_ms INTEGER,to_ms INTEGER)")
+        db.execSQL("INSERT INTO sync VALUES ('heart_rate',1,'success',NULL,1,2)")
+        val held=row("held")
+        db.execSQL("INSERT INTO records VALUES (?,?,?,?)",arrayOf<Any>("held","heart_rate",held.toString(),from.toEpochMilli()))
+        db.version=1;db.close()
+        ctx.getSharedPreferences("health_insights",0).edit().putBoolean("enabled",true).commit()
+        store=HealthInsightStore(ctx)
+        val state=store.states().single()
+        assertTrue(state.isNull("returned_count"));assertEquals("legacy_count_unknown",state.getString("read_result"))
+        assertEquals(1,state.getInt("cached_count"));assertTrue(store.contains("held"))
+        assertTrue(ctx.getSharedPreferences("health_insights",0).getBoolean("enabled",false))
+    }
     @Test fun epochAndOriginalOffsetsRemainDistinctAndAllSeriesIncludingNestedLogsSurvive() {
         val point = row("test")
         assertEquals(from.toEpochMilli(), point.getJSONObject("time").getLong("start_epoch_ms"))

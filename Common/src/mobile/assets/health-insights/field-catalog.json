@@ -10,7 +10,7 @@
     "device_glucose": {
       "unit": "mg/dL",
       "type": "number",
-      "description": "Device/raw channel when available"
+      "description": "Stored Raw lane. It may be current-derived rather than vendor-reported glucose; consult channel_provenance. Export does not recalibrate or convert it again."
     },
     "heart_rate": {
       "unit": "bpm",
@@ -34,7 +34,8 @@
     },
     "duration": {
       "unit": "s",
-      "type": "number"
+      "type": "number",
+      "description": "Explicit exercise/session duration; sleep uses separately named interval and estimated-stage durations."
     },
     "distance": {
       "unit": "m",
@@ -55,7 +56,147 @@
     "height": {
       "unit": "cm",
       "type": "number"
+    },
+    "weight": {
+      "unit": "kg",
+      "type": "number"
+    },
+    "basal_metabolic_rate": {
+      "unit": "kcal/d",
+      "type": "number"
+    },
+    "body_fat": {
+      "unit": "%",
+      "type": "number"
+    },
+    "body_fat_mass": {
+      "unit": "kg",
+      "type": "number"
+    },
+    "fat_free": {
+      "unit": "%",
+      "type": "number"
+    },
+    "fat_free_mass": {
+      "unit": "kg",
+      "type": "number"
+    },
+    "muscle_mass": {
+      "unit": "%",
+      "type": "number"
+    },
+    "skeletal_muscle": {
+      "unit": "%",
+      "type": "number"
+    },
+    "skeletal_muscle_mass": {
+      "unit": "kg",
+      "type": "number"
+    },
+    "total_body_water": {
+      "unit": "L",
+      "type": "number"
+    },
+    "body_mass_index": {
+      "unit": "kg/m2",
+      "type": "number"
+    },
+    "energy_burned": {
+      "unit": "kcal",
+      "type": "number"
+    },
+    "active_energy_burned": {
+      "unit": "kcal",
+      "type": "number"
+    },
+    "active_energy_goal": {
+      "unit": "kcal",
+      "type": "number"
+    },
+    "steps_goal": {
+      "unit": "count",
+      "type": "number"
+    },
+    "active_duration": {
+      "unit": "s",
+      "type": "number"
+    },
+    "active_duration_goal": {
+      "unit": "s",
+      "type": "number"
+    },
+    "floors_climbed": {
+      "unit": "count",
+      "type": "number"
+    },
+    "movement_count": {
+      "unit": "count",
+      "type": "number"
+    },
+    "power": {
+      "unit": "W",
+      "type": "number"
+    },
+    "power_max": {
+      "unit": "W",
+      "type": "number"
+    },
+    "speed_max": {
+      "unit": "m/s",
+      "type": "number"
+    },
+    "cadence": {
+      "unit": "count/min",
+      "type": "number"
+    },
+    "oxygen_saturation_min": {
+      "unit": "%",
+      "type": "number"
+    },
+    "oxygen_saturation_max": {
+      "unit": "%",
+      "type": "number"
+    },
+    "altitude_gain": {
+      "unit": "m",
+      "type": "number"
+    },
+    "altitude_loss": {
+      "unit": "m",
+      "type": "number"
+    },
+    "sdk_session_duration": {
+      "unit": "s",
+      "type": "number"
+    },
+    "record_interval_duration": {
+      "unit": "s",
+      "type": "number",
+      "description": "Sleep record end-start, including awake or unclassified periods."
+    },
+    "estimated_asleep_duration": {
+      "unit": "s",
+      "type": "number",
+      "description": "Device-estimated duration from recognized, non-overlapping sleep stages; not a clinical measurement."
+    },
+    "estimated_awake_duration": {
+      "unit": "s",
+      "type": "number",
+      "description": "Device-estimated duration from recognized, non-overlapping sleep stages; not a clinical measurement."
+    },
+    "unclassified_duration": {
+      "unit": "s",
+      "type": "number"
+    },
+    "skin_temperature_min": {
+      "unit": "Cel",
+      "type": "number"
+    },
+    "skin_temperature_max": {
+      "unit": "Cel",
+      "type": "number"
     }
   },
-  "unmapped_policy": "Preserve optional raw fields, report normalization=partial; never guess units."
+  "unmapped_policy": "Preserve optional raw fields, report normalization=partial; never guess units.",
+  "mapping_version": "samsung_documented_metrics_v1"
 }

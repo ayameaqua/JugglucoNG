@@ -10,7 +10,7 @@ internal object HealthCanonical {
         .put("start_epoch_ms", start.toEpochMilli()).put("end_epoch_ms", end.toEpochMilli()).put("original_offset", offset ?: JSONObject.NULL)
     fun base(id: String, kind: String, time: JSONObject, provider: String, observed: Instant): JSONObject = JSONObject()
         .put("schema_version", "0.1.0").put("record_id", id).put("kind", kind)
-        .put("granularity", if (time.getString("basis") == "local_date") "daily" else if (time.getString("basis") == "snapshot") "profile" else "interval")
+        .put("granularity", if (time.getString("basis") == "local_date") "daily" else if (time.getString("basis") == "snapshot") "profile" else if (time.optString("start_utc") == time.optString("end_utc")) "point" else "interval")
         .put("time", time).put("source", JSONObject().put("provider", provider).put("record_alias", id)
             .put("app_id", if (provider == "samsung_health") "com.sec.android.app.shealth" else "tk.glucodata")
             .put("device_alias", JSONObject.NULL).put("sensor_alias", JSONObject.NULL).put("method", JSONObject.NULL))
