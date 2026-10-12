@@ -16,7 +16,7 @@
 1. 打开 [Google Cloud 控制台](https://console.cloud.google.com/)，新建一个个人测试项目。
 2. 在 API 库启用 [Google Drive API](https://console.cloud.google.com/apis/library/drive.googleapis.com)。
 3. 在 Google Auth Platform 填写 Branding：应用名、支持邮箱、联系人邮箱等必填信息。控制台要求主页、隐私政策时提供自己可管理的真实网页；仓库中的说明也可用于个人测试的文档链接，公开发布需按 Google 要求完善。
-4. Audience 选择 External、Testing，添加你将用于手机上传的 Google 账号为测试用户。如果是 Workspace 账号，另检查组织的第三方授权限制。
+4. Audience 选择 External。个人测试可用 Testing，并添加用于手机上传的 Google 账号为测试用户；如果发布状态已经是 In production，就无需添加测试用户。仅选择 External 不表示已经发布。如果是 Workspace 账号，另检查组织的第三方授权限制。
 5. Data Access 添加唯一请求的范围 `https://www.googleapis.com/auth/drive.file`。这是应用创建/明确授权的文件访问范围，不请求整个云盘、通讯录或隐藏的 appDataFolder。
 6. Clients → Create client → Android。填写：
    - 包名：`tk.glucodata.ng.dub`
@@ -47,6 +47,28 @@
 每个文件预先取得唯一 Drive ID，同一次上传重试继续使用该 ID。网络/限流重试有上限；断块时查询服务器已提交字节数再继续；会话失效时有界重建。提交成功但响应丢失时，409 后读取同一 ID 并校验 size/MD5，避免重复文件。仅全部核对成功才报告完成。401 清除过期令牌缓存并提示重新授权。取消或失败保留未完成云盘目录，可自行删除。
 
 access token 只存在内存中，不写入偏好、日志或导出；本机偏好只记住上次账号 ID/邮箱/显示名。每次上传重新向 Google 请求当前授权。切换账号会验证新账号身份，目录查询按当前账号进行；断开仅清除本机账号记忆，已有云盘文件保留。需要撤销 Google 侧授权时到 [Google 第三方应用管理](https://myaccount.google.com/connections)。
+
+## 选择账号后返回或显示取消（2026-10-12 修复）
+
+旧版把所有非 RESULT_OK 返回都显示为「已取消 Google 授权」，会漏掉 Google SDK
+可解析的失败状态。新版先使用 AccountPicker 明确选中 Google 账号，再以 setAccount
+发起标准 Drive 授权，不使用强制 SELECT_ACCOUNT prompt。已有账号的上传直接使用
+该账号；切换账号重新选择，只有 Drive 验证成功后才更新本机账号记录。
+
+授权窗口返回后，无论 Activity 返回码如何，都调用 SDK 的 getAuthorizationResultFromIntent。
+有效令牌和 drive.file 授权才能继续；失败显示 SDK 状态码、Android 返回码及失败阶段。
+空返回或 SDK 的取消状态不能证明用户主动取消，不用泛化的取消文字替代具体错误。
+窗口启动失败与真正的 SDK 结果分别处理；再次返回 PendingIntent 会停止，不自动循环。
+
+「复制 Google 登录诊断」只包含阶段、公开错误码、包名、版本、签名 SHA-1、Android API
+和 Play 服务版本，不包含邮箱、账号 ID、令牌、原始 Intent/异常内容或健康数据。
+诊断中的 SHA-1 可与 Cloud Android 客户端实际登记值核对。代码 10 可优先核对
+包名/签名/项目；没有真机返回码时不推定根因。当前手机选择账号后自动退出是否彻底
+解决，仍需覆盖安装新版后验证；单元测试与 APK 构建不等于 Google 账号实测成功。
+
+修复新增 11 个授权回归用例，覆盖非成功 Activity 返回码中的 SDK 错误/有效结果、空返回、
+取消状态、权限不足、窗口启动失败、重复交互、显式账号请求及诊断脱敏。
+2026-10-12 完整 Mobile Debug 3,783 项、Wear Debug 2,860 项通过；健康/Drive 专项 40 项通过。
 
 ## 官方依据
 

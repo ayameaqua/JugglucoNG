@@ -32,6 +32,7 @@ internal data class HealthTransferState(
     val cloudLink: String? = null,
     val complete: Boolean = false,
     val pendingSave: File? = null,
+    val authDiagnostic: DriveAuthDiagnostic? = null,
 )
 
 /** Retains active work through configuration changes. No token or health data is put in saved state. */
@@ -70,12 +71,21 @@ internal class HealthTransferViewModel(application: Application) : AndroidViewMo
             expectedAccountId = state.value.account?.id
         }
         action = value
-        _state.update { it.copy(busy = true, canCancel = false, message = "等待 Google 账号授权…", cloudLink = if (value == Action.UPLOAD) null else it.cloudLink, complete = if (value == Action.UPLOAD) false else it.complete) }
+        _state.update { it.copy(busy = true, canCancel = false, authDiagnostic = null, message = "等待 Google 账号授权…", cloudLink = if (value == Action.UPLOAD) null else it.cloudLink, complete = if (value == Action.UPLOAD) false else it.complete) }
         return true
     }
-    fun authorizationFailed(message: String) {
+    fun authorizationFailed(message: String, diagnostic: DriveAuthDiagnostic? = null) {
         action = null; selectionForUpload = null; expectedAccountId = null
-        _state.update { it.copy(busy = false, canCancel = false, message = message) }
+        _state.update { it.copy(busy = false, canCancel = false, message = message, authDiagnostic = diagnostic) }
+    }
+    fun awaitingAuthorization() = action != null
+    fun authorizationProgress(message: String) { if (awaitingAuthorization()) _state.update { it.copy(message = message) } }
+    fun authorizationReturned(outcome: DriveAuthOutcome) {
+        if (!awaitingAuthorization()) return
+        when (outcome) {
+            is DriveAuthOutcome.Failed -> authorizationFailed(outcome.diagnostic.message(), outcome.diagnostic)
+            is DriveAuthOutcome.Granted -> { _state.update { it.copy(authDiagnostic = outcome.diagnostic) }; authorized(outcome.result) }
+        }
     }
     fun authorized(result: AuthorizationResult) {
         val target = action ?: return
