@@ -40,7 +40,7 @@ private class AndroidHealthConnectGateway(private val context: Context): HealthC
         HealthConnectClient.SDK_UNAVAILABLE_PROVIDER_UPDATE_REQUIRED -> "请先安装或更新 Health Connect；已有缓存保留"
         else -> "此设备的 Health Connect 不可用；已有缓存保留"
     }
-    override fun feature(feature: Int) = available && client.features.getFeatureStatus(feature)==HealthConnectFeatures.FEATURE_STATUS_AVAILABLE
+    override fun feature(feature: Int) = available && runCatching { client.features.getFeatureStatus(feature)==HealthConnectFeatures.FEATURE_STATUS_AVAILABLE }.getOrDefault(false)
     override suspend fun permissions() = if(available) client.permissionController.getGrantedPermissions() else emptySet()
     override suspend fun request(activity: Activity, permissions: Set<String>): Set<String> =
         (activity as? HealthInsightsActivity)?.requestHealthConnectPermissions(permissions) ?: error("请从健康数据与血糖页面授权")
@@ -65,7 +65,7 @@ internal class HealthConnectReader(private val context: Context, private val gat
     }.toSet()
     internal fun required(kinds: Set<HealthKind>): Set<String> = kinds.flatMap { kind -> classes(kind).map { HealthPermission.getReadPermission(it) } }.toSet()
     override suspend fun granted(kinds: Set<HealthKind>): Set<HealthKind> {
-        val permissions=gateway.permissions()
+        val permissions=withTimeout(30_000) { gateway.permissions() }
         return kinds.filter { kind -> val types=classes(kind);types.isNotEmpty() && types.any { HealthPermission.getReadPermission(it) in permissions } }.toSet()
     }
     override suspend fun request(activity: Activity, kinds: Set<HealthKind>): Set<HealthKind> {
@@ -77,7 +77,12 @@ internal class HealthConnectReader(private val context: Context, private val gat
     }
     override suspend fun read(kinds: Set<HealthKind>, from: Instant, until: Instant, store: HealthInsightStore, progress: (String)->Unit) {
         require(store.provider == "health_connect")
-        val permissions=gateway.permissions()
+        val permissions=try { withTimeout(30_000) { gateway.permissions() } } catch(ex: Exception) {
+            currentCoroutineContext().ensureActive()
+            kinds.forEach { store.fail(it,"Health Connect 授权查询失败（${ex.javaClass.simpleName}）；已有缓存保留，可重试") }
+            progress("授权查询失败；原有缓存保留，仍可导出")
+            return
+        }
         val history=context.getSharedPreferences("health_insights",0).getBoolean("hc_read_history",false) && HealthPermission.PERMISSION_READ_HEALTH_DATA_HISTORY in permissions
         val floor=until.minusSeconds(30*86400L)
         val actualFrom=if(history || from>=floor) from else floor
@@ -97,8 +102,7 @@ internal class HealthConnectReader(private val context: Context, private val gat
                 while(!finished) {
                     val previousToken=store.changeToken(kind, tokenKind)
                     val permissionSetChanged=previousToken==null && store.cursor(kind)>0
-                    var token=previousToken ?: withTimeout(30_000) { gateway.changesToken(recordTypes) }
-                    if(attempts>0) token=withTimeout(30_000) { gateway.changesToken(recordTypes) }
+                    var token=if(attempts>0 || previousToken==null) withTimeout(30_000) { gateway.changesToken(recordTypes) } else previousToken
                     fun allowed(record: Record): Boolean = !isJuggOrigin(record.metadata.dataOrigin.packageName,context.packageName)
                     fun stage(record: Record) {
                         if(!allowed(record)) return

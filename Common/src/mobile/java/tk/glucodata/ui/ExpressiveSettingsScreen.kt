@@ -522,7 +522,7 @@ fun ExpressiveSettingsScreen(
                 }
                 SettingsItem(
                     title = "健康数据与血糖",
-                    subtitle = "直接读取三星健康 · 联动时间线 · 全量导出给 Agent",
+                    subtitle = "Health Connect／三星健康 · 联动时间线 · 导出给 Agent",
                     icon = Icons.Default.Favorite,
                     iconTint = exchangeColor,
                     position = CardPosition.MIDDLE,

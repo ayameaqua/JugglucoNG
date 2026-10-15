@@ -43,11 +43,12 @@ class HealthConnectReaderTest {
         override val available=true
         override val availabilityMessage="test"
         var grants=HealthConnectReader.types.values.flatten().map { HealthPermission.getReadPermission(it) }.toSet()
+        var permissionFailure=false
         var rows:List<Record> = emptyList()
         var pageReads=0;var fail=false;var repeat=false;var emptyToken=false;var expired=false;var deletes:List<String> = emptyList()
         var upserts:List<Record> = emptyList();var seenFrom:Instant?=null
         override fun feature(feature:Int)=true
-        override suspend fun permissions()=grants
+        override suspend fun permissions():Set<String> { if(permissionFailure) error("synthetic-secret-token");return grants }
         override suspend fun request(activity:Activity,permissions:Set<String>)=grants
         override suspend fun page(type:KClass<out Record>,from:Instant,until:Instant,token:String?):HcReadPage {
             pageReads++;seenFrom=from
@@ -195,6 +196,25 @@ class HealthConnectReaderTest {
             assertEquals("mg/dL",second.getJSONObject("metrics").getJSONObject("glucose").getString("unit"))
             assertEquals(138.6,second.getJSONObject("metrics").getJSONObject("glucose").getDouble("value"),0.5)
         } finally { java.util.TimeZone.setDefault(old) }
+    }
+
+    @Test fun permissionServiceFailureRetainsCacheAndStillExportsLocalDataWithoutLeakingErrorDetails(): Unit =runBlocking {
+        val gateway=Gateway();gateway.rows=listOf(record());val reader=HealthConnectReader(context,gateway)
+        reader.read(setOf(HealthKind.BLOOD_OXYGEN),from,until,store,{})
+        gateway.permissionFailure=true
+        val c=HealthInsightCoordinator(context,adapterOverrides=mapOf(HealthDataSource.HEALTH_CONNECT to reader))
+        c.selectSource(HealthDataSource.HEALTH_CONNECT);c.saveSelected(setOf(HealthKind.BLOOD_OXYGEN));c.settings.edit().putBoolean("enabled",true).commit()
+        val db=androidx.room.Room.databaseBuilder(context,tk.glucodata.data.HistoryDatabase::class.java,"hc-permission-error-export.db").build()
+        try {
+            val file=HealthInsightExport.create(context,c,db)
+            try { java.util.zip.ZipFile(file).use { zip ->
+                val text=zip.getInputStream(zip.getEntry("manifest.json")).bufferedReader().use { it.readText() }
+                val m=JSONObject(text)
+                assertEquals(1,m.getJSONObject("counts").getInt("health_connect"));assertTrue(m.getBoolean("partial_refresh"))
+                assertEquals("error",m.getJSONArray("health_connect_sync").getJSONObject(0).getString("status"))
+                assertFalse(text.contains("synthetic-secret-token"));assertEquals(1,records().size)
+            } } finally { file.delete() }
+        } finally { db.close();c.store.close() }
     }
 
 }

@@ -5,7 +5,7 @@
     "glucose": {
       "unit": "mg/dL",
       "type": "number",
-      "description": "Room stored Auto value in mg/dL; recorded display values are a separate ZIP stream"
+      "description": "CGM glucose.jsonl uses Room stored Auto mg/dL; imported platform blood_glucose uses its typed source value in mg/dL, with source and recording method retained. Recorded display values are a separate ZIP stream."
     },
     "device_glucose": {
       "unit": "mg/dL",
@@ -268,5 +268,6 @@
     "samsung_health": "samsung_documented_metrics_v1",
     "health_connect": "health_connect_typed_units_v1"
   },
-  "health_connect_policy": "HC quantity getters declare units. Nutrition typed energy/mass fields retain named metrics in kcal/g; categorical and unmapped getters stay attributes.health_connect_fields or child attributes.sdk_value. Heart summary is arithmetic sample mean, not time-weighted. Partial normalization is retained."
+  "health_connect_policy": "HC quantity getters declare units. Nutrition typed energy/mass fields retain named metrics in kcal/g; categorical and unmapped getters stay attributes.health_connect_fields or child attributes.sdk_value. Heart summary is arithmetic sample mean, not time-weighted. Partial normalization is retained.",
+  "mapping_version_provider": "samsung_health"
 }
