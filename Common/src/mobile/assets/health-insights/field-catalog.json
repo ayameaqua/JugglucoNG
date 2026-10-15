@@ -195,8 +195,78 @@
     "skin_temperature_max": {
       "unit": "Cel",
       "type": "number"
+    },
+    "water_intake": {
+      "unit": "mL",
+      "type": "number",
+      "description": "HC hydration volume; body water mass remains kg."
+    },
+    "body_water_mass": {
+      "unit": "kg",
+      "type": "number",
+      "description": "HC mass, never inferred as liters."
+    },
+    "bone_mass": {
+      "unit": "kg",
+      "type": "number",
+      "description": "HC typed bone mass."
+    },
+    "lean_body_mass": {
+      "unit": "kg",
+      "type": "number",
+      "description": "HC typed lean mass."
+    },
+    "basal_body_temperature": {
+      "unit": "Cel",
+      "type": "number",
+      "description": "HC basal temperature; separate from ordinary body temperature."
+    },
+    "skin_temperature_baseline": {
+      "unit": "Cel",
+      "type": "number",
+      "description": "HC baseline; delta samples are not absolute temperatures."
+    },
+    "skin_temperature_delta": {
+      "unit": "Cel",
+      "type": "number",
+      "description": "HC temperature delta relative to baseline."
+    },
+    "systolic_pressure": {
+      "unit": "mm[Hg]",
+      "type": "number",
+      "description": "HC typed pressure."
+    },
+    "diastolic_pressure": {
+      "unit": "mm[Hg]",
+      "type": "number",
+      "description": "HC typed pressure."
+    },
+    "resting_heart_rate": {
+      "unit": "bpm",
+      "type": "number",
+      "description": "HC resting measurement."
+    },
+    "respiratory_rate": {
+      "unit": "count/min",
+      "type": "number",
+      "description": "HC respiratory rate."
+    },
+    "heart_rate_variability_rmssd": {
+      "unit": "ms",
+      "type": "number",
+      "description": "HC RMSSD, not another HRV definition."
+    },
+    "vo2_max": {
+      "unit": "mL/(kg.min)",
+      "type": "number",
+      "description": "HC VO2 max."
     }
   },
   "unmapped_policy": "Preserve optional raw fields, report normalization=partial; never guess units.",
-  "mapping_version": "samsung_documented_metrics_v1"
+  "mapping_version": "samsung_documented_metrics_v1",
+  "mapping_versions": {
+    "samsung_health": "samsung_documented_metrics_v1",
+    "health_connect": "health_connect_typed_units_v1"
+  },
+  "health_connect_policy": "HC quantity getters declare units. Nutrition typed energy/mass fields retain named metrics in kcal/g; categorical and unmapped getters stay attributes.health_connect_fields or child attributes.sdk_value. Heart summary is arithmetic sample mean, not time-weighted. Partial normalization is retained."
 }

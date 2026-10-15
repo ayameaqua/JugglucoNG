@@ -124,7 +124,7 @@
     {
       "sdk_type": "BLOOD_GLUCOSE",
       "kind": "blood_glucose",
-      "label_zh": "三星血糖",
+      "label_zh": "其他来源血糖",
       "query_route": "read",
       "time_basis": "instant_interval",
       "default_selected": false,
@@ -329,5 +329,244 @@
       "juggluco_adapter_implemented": true,
       "juggluco_device_verified": false
     }
-  ]
+  ],
+  "provider": "samsung_health",
+  "health_connect": {
+    "sdk_version": "androidx.health.connect:connect-client:1.1.0",
+    "source_documentation": "https://developer.android.com/health-and-fitness/health-connect/read-data",
+    "status": "implemented_pending_device_validation",
+    "write_back": false,
+    "history_permission_optional": true,
+    "read_floor_without_history_permission": "conservative last 30 days; not a full account claim",
+    "exercise_routes_imported": false,
+    "own_jugg_origins_excluded": true,
+    "entries": [
+      {
+        "kind": "sleep",
+        "label_zh": "睡眠及阶段",
+        "record_types": [
+          "SleepSessionRecord"
+        ],
+        "default_selected": true,
+        "query_route": "paginated_read_and_changes",
+        "time_basis": "instant_interval_or_point",
+        "juggluco_adapter_implemented": true,
+        "juggluco_device_verified": false
+      },
+      {
+        "kind": "steps",
+        "label_zh": "步数",
+        "record_types": [
+          "StepsRecord"
+        ],
+        "default_selected": true,
+        "query_route": "paginated_read_and_changes",
+        "time_basis": "instant_interval_or_point",
+        "juggluco_adapter_implemented": true,
+        "juggluco_device_verified": false
+      },
+      {
+        "kind": "heart_rate",
+        "label_zh": "心率",
+        "record_types": [
+          "HeartRateRecord"
+        ],
+        "default_selected": true,
+        "query_route": "paginated_read_and_changes",
+        "time_basis": "instant_interval_or_point",
+        "juggluco_adapter_implemented": true,
+        "juggluco_device_verified": false
+      },
+      {
+        "kind": "exercise",
+        "label_zh": "运动",
+        "record_types": [
+          "ExerciseSessionRecord"
+        ],
+        "default_selected": true,
+        "query_route": "paginated_read_and_changes",
+        "time_basis": "instant_interval_or_point",
+        "juggluco_adapter_implemented": true,
+        "juggluco_device_verified": false
+      },
+      {
+        "kind": "skin_temperature",
+        "label_zh": "皮肤温度",
+        "record_types": [
+          "SkinTemperatureRecord"
+        ],
+        "default_selected": true,
+        "query_route": "paginated_read_and_changes",
+        "time_basis": "instant_interval_or_point",
+        "juggluco_adapter_implemented": true,
+        "juggluco_device_verified": false,
+        "feature_gate": "FEATURE_SKIN_TEMPERATURE"
+      },
+      {
+        "kind": "blood_oxygen",
+        "label_zh": "血氧",
+        "record_types": [
+          "OxygenSaturationRecord"
+        ],
+        "default_selected": true,
+        "query_route": "paginated_read_and_changes",
+        "time_basis": "instant_interval_or_point",
+        "juggluco_adapter_implemented": true,
+        "juggluco_device_verified": false
+      },
+      {
+        "kind": "activity_summary",
+        "label_zh": "活动汇总",
+        "record_types": [
+          "ActiveCaloriesBurnedRecord",
+          "TotalCaloriesBurnedRecord",
+          "DistanceRecord"
+        ],
+        "default_selected": false,
+        "query_route": "paginated_read_and_changes",
+        "time_basis": "instant_interval_or_point",
+        "juggluco_adapter_implemented": true,
+        "juggluco_device_verified": false
+      },
+      {
+        "kind": "floors_climbed",
+        "label_zh": "爬楼层数",
+        "record_types": [
+          "FloorsClimbedRecord"
+        ],
+        "default_selected": false,
+        "query_route": "paginated_read_and_changes",
+        "time_basis": "instant_interval_or_point",
+        "juggluco_adapter_implemented": true,
+        "juggluco_device_verified": false
+      },
+      {
+        "kind": "blood_glucose",
+        "label_zh": "其他来源血糖",
+        "record_types": [
+          "BloodGlucoseRecord"
+        ],
+        "default_selected": false,
+        "query_route": "paginated_read_and_changes",
+        "time_basis": "instant_interval_or_point",
+        "juggluco_adapter_implemented": true,
+        "juggluco_device_verified": false
+      },
+      {
+        "kind": "blood_pressure",
+        "label_zh": "血压",
+        "record_types": [
+          "BloodPressureRecord"
+        ],
+        "default_selected": false,
+        "query_route": "paginated_read_and_changes",
+        "time_basis": "instant_interval_or_point",
+        "juggluco_adapter_implemented": true,
+        "juggluco_device_verified": false
+      },
+      {
+        "kind": "body_composition",
+        "label_zh": "身体成分",
+        "record_types": [
+          "WeightRecord",
+          "HeightRecord",
+          "BodyFatRecord",
+          "BoneMassRecord",
+          "LeanBodyMassRecord",
+          "BodyWaterMassRecord",
+          "BasalMetabolicRateRecord"
+        ],
+        "default_selected": false,
+        "query_route": "paginated_read_and_changes",
+        "time_basis": "instant_interval_or_point",
+        "juggluco_adapter_implemented": true,
+        "juggluco_device_verified": false
+      },
+      {
+        "kind": "body_temperature",
+        "label_zh": "体温",
+        "record_types": [
+          "BodyTemperatureRecord",
+          "BasalBodyTemperatureRecord"
+        ],
+        "default_selected": false,
+        "query_route": "paginated_read_and_changes",
+        "time_basis": "instant_interval_or_point",
+        "juggluco_adapter_implemented": true,
+        "juggluco_device_verified": false
+      },
+      {
+        "kind": "water_intake",
+        "label_zh": "饮水",
+        "record_types": [
+          "HydrationRecord"
+        ],
+        "default_selected": false,
+        "query_route": "paginated_read_and_changes",
+        "time_basis": "instant_interval_or_point",
+        "juggluco_adapter_implemented": true,
+        "juggluco_device_verified": false
+      },
+      {
+        "kind": "nutrition",
+        "label_zh": "营养摄入",
+        "record_types": [
+          "NutritionRecord"
+        ],
+        "default_selected": false,
+        "query_route": "paginated_read_and_changes",
+        "time_basis": "instant_interval_or_point",
+        "juggluco_adapter_implemented": true,
+        "juggluco_device_verified": false
+      },
+      {
+        "kind": "resting_heart_rate",
+        "label_zh": "静息心率",
+        "record_types": [
+          "RestingHeartRateRecord"
+        ],
+        "default_selected": false,
+        "query_route": "paginated_read_and_changes",
+        "time_basis": "instant_interval_or_point",
+        "juggluco_adapter_implemented": true,
+        "juggluco_device_verified": false
+      },
+      {
+        "kind": "respiratory_rate",
+        "label_zh": "呼吸频率",
+        "record_types": [
+          "RespiratoryRateRecord"
+        ],
+        "default_selected": false,
+        "query_route": "paginated_read_and_changes",
+        "time_basis": "instant_interval_or_point",
+        "juggluco_adapter_implemented": true,
+        "juggluco_device_verified": false
+      },
+      {
+        "kind": "heart_rate_variability",
+        "label_zh": "心率变异性（RMSSD）",
+        "record_types": [
+          "HeartRateVariabilityRmssdRecord"
+        ],
+        "default_selected": false,
+        "query_route": "paginated_read_and_changes",
+        "time_basis": "instant_interval_or_point",
+        "juggluco_adapter_implemented": true,
+        "juggluco_device_verified": false
+      },
+      {
+        "kind": "vo2_max",
+        "label_zh": "最大摄氧量",
+        "record_types": [
+          "Vo2MaxRecord"
+        ],
+        "default_selected": false,
+        "query_route": "paginated_read_and_changes",
+        "time_basis": "instant_interval_or_point",
+        "juggluco_adapter_implemented": true,
+        "juggluco_device_verified": false
+      }
+    ]
+  }
 }

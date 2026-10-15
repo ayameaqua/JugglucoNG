@@ -8,6 +8,7 @@ device identifier, signing key or MCP credential is included.
 Development branch: `feature/samsung-health-insights`, based on
 `build/custom-dub-final` at `a1b81069e980225034fd8a129201bc76d81ab789`.
 
+- [Android health source selection and Watch8 setup](android-health-and-watch.zh-CN.md)
 - [Product design, in Chinese](design.zh-CN.md)
 - [Data and MCP contract](data-contract.md)
 - [Record schema](record.schema.json)
@@ -20,8 +21,8 @@ Development branch: `feature/samsung-health-insights`, based on
 ## Target agent: ChatGPT
 
 The first release is now **one-button export of all synchronized local health
-data**. It has no live MCP server or connection page. The button refreshes enabled
-sources within their configured import scope, captures source-consistent snapshots,
+data**. It has no live MCP server or connection page. The button refreshes the selected health
+provider within its configured import scope, captures source-consistent snapshots,
 and generates one agent-friendly ZIP for system save/share. Current view filters
 do not restrict the export. MCP remains a future design, not a release gate.
 

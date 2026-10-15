@@ -30,13 +30,22 @@ internal object HealthInsightExport {
             val sourceStore = HealthConnectSources(context)
             val sourceCatalog = mutableMapOf<String, HealthConnectSources.Source>()
             try {
-                var samsungCount = 0
-                File(folder, "samsung-records.jsonl").bufferedWriter().use { records ->
-                    File(folder, "series.jsonl").bufferedWriter().use { series ->
-                        File(folder, "relations.jsonl").bufferedWriter().use { relations -> if (selection.includeHealth) samsungCount = coordinator.store.snapshot(records, series, relations) }
+                var samsungCount = 0; var hcCount = 0
+                val activeSource = coordinator.source()
+                val caches = if(selection.includeHealth) coordinator.cachedStores() else emptyList()
+                File(folder, "samsung-records.jsonl").bufferedWriter().use { samsung ->
+                    File(folder, "health-connect-records.jsonl").bufferedWriter().use { hc ->
+                        File(folder, "series.jsonl").bufferedWriter().use { series ->
+                            File(folder, "relations.jsonl").bufferedWriter().use { relations ->
+                                caches.forEach { (source, cache) ->
+                                    val count = cache.snapshot(if(source == HealthDataSource.SAMSUNG) samsung else hc, series, relations)
+                                    if(source == HealthDataSource.SAMSUNG) samsungCount = count else hcCount = count
+                                }
+                            }
+                        }
                     }
                 }
-                val states = if (selection.includeHealth) coordinator.store.states() else emptyList()
+                val states = caches.flatMap { (source,cache) -> cache.states().onEach { it.put("active_source",source == activeSource) } }
                 val db = database ?: HistoryDatabase.getInstance(context)
                 var glucoseCount = 0; var journalCount = 0
                 var min = Long.MAX_VALUE; var max = 0L
@@ -164,29 +173,33 @@ internal object HealthInsightExport {
                 File(folder, "glucose-sources.jsonl").bufferedWriter().use { writer -> sourceCatalog.toSortedMap().forEach { (serial, source) ->
                     writer.line(HealthGlucoseAudit.sourceEntry(coordinator.store, serial, source, sourceStore.knownWears(source.serial)))
                 } }
-                val partial = states.any { it.optString("status") !in setOf("success", "association_permission") }
-                val manifest = JSONObject().put("schema_version", "0.3.0").put("exported_at_utc", cutoff.toString()).put("cutoff_epoch_ms", cutoff.toEpochMilli())
+                val partial = states.filter { it.optBoolean("active_source") }.any { it.optString("status") !in setOf("success", "association_permission") || !it.isNull("deletion_history_gap") }
+                val manifest = JSONObject().put("schema_version", "0.4.0").put("exported_at_utc", cutoff.toString()).put("cutoff_epoch_ms", cutoff.toEpochMilli())
                     .put("quality_review_policy", HealthGlucoseAudit.policy())
                     .put("display_link_policy", "unique same stored sensor + minute bucket; original sample timestamp retained; ambiguous/missing linkage remains null; not an independently captured historical measurement ID")
-                    .put("scope", if (selection.includeHealth) "all_valid_local_records_all_sensors_all_channels_all_cached_samsung_types_and_journal" else "selected_cgm_all_local_history_all_channels")
+                    .put("health_source", JSONObject().put("selected_provider", activeSource.provider).put("selection_policy", "only selected provider refreshed; timeline/analysis uses selected provider only; export retains both provider caches in separate streams, never merge or sum mirrored platform data"))
+                    .put("scope", if (selection.includeHealth) "all_valid_local_records_all_sensors_all_channels_both_health_source_caches_and_journal" else "selected_cgm_all_local_history_all_channels")
                     .put("selection", JSONObject().put("mode", selection.scope.name).put("health_and_journal_included", selection.includeHealth)
                         .put("sensor_aliases", JSONArray(sourceCatalog.keys.map { coordinator.store.alias("juggluco", "sensor", it) })))
-                    .put("source_snapshots", if (selection.includeHealth) "Samsung cache lock, then Room pages validated by a dedicated read-only data_version connection; concurrent changes retry; no cross-database atomicity claimed" else "Only selected CGM: Room pages validated by a dedicated read-only data_version connection; concurrent changes retry; Samsung SDK/cache and journal excluded")
-                    .put("counts", JSONObject().put("blood_glucose", glucoseCount).put("samsung_health", samsungCount).put("journal", journalCount))
-                    .put("partial_refresh", partial).put("samsung_sync", JSONArray(states)).put("samsung_read_enabled", coordinator.settings.getBoolean("enabled", false))
-                    .put("samsung_selected_types", JSONArray(if (selection.includeHealth) coordinator.selected().map { it.name } else emptyList<String>())).put("timestamps", "absolute UTC instants; original Samsung offsets retained; CGM offsets unknown are null")
-                    .put("unmapped_fields", "Retained under attributes.sdk_fields and child series; normalization is partial, units are not guessed")
+                    .put("source_snapshots", if (selection.includeHealth) "Separate health-provider cache locks, then Room pages validated by a dedicated read-only data_version connection; concurrent changes retry; no cross-database atomicity claimed" else "Only selected CGM: Room pages validated by a dedicated read-only data_version connection; concurrent changes retry; Both health providers and journal excluded")
+                    .put("counts", JSONObject().put("blood_glucose", glucoseCount).put("samsung_health", samsungCount).put("health_connect", hcCount).put("journal", journalCount))
+                    .put("partial_refresh", partial).put("health_sync", JSONArray(states)).put("health_connect_sync", JSONArray(states.filter { it.optString("provider") == "health_connect" })).put("samsung_sync", JSONArray(states.filter { it.optString("provider") == "samsung_health" })).put("health_read_enabled", coordinator.settings.getBoolean("enabled", false)).put("samsung_read_enabled", activeSource == HealthDataSource.SAMSUNG && coordinator.settings.getBoolean("enabled", false))
+                    .put("health_selected_types", JSONArray(if(selection.includeHealth) coordinator.selected().map { it.name } else emptyList<String>()))
+                    .put("samsung_selected_types", JSONArray(if (selection.includeHealth && activeSource == HealthDataSource.SAMSUNG) coordinator.selected().map { it.name } else emptyList<String>())).put("timestamps", "absolute UTC instants; original platform offsets retained; CGM offsets unknown are null")
+                    .put("unmapped_fields", "Samsung attributes.sdk_fields / HC attributes.health_connect_fields and typed child series; normalization is partial, units are not guessed")
                     .put("coverage", JSONObject().put("glucose_start_epoch_ms", if (min == Long.MAX_VALUE) JSONObject.NULL else min).put("glucose_end_epoch_ms", if (max == 0L) JSONObject.NULL else max)
+                        .put("health_connect", if(selection.includeHealth) "Retained authorized read windows only; history permission and deletion gaps are explicit in health_connect_sync; not proof of all platform history" else "Excluded; HC reader not refreshed for this export")
                         .put("samsung", if (selection.includeHealth) "Only previously synchronized scope, not entire Samsung account history" else "Excluded; Samsung SDK not refreshed for this export"))
                 File(folder, "manifest.json").writeText(manifest.toString(2))
-                val summary = JSONObject().put("glucose_records", glucoseCount).put("samsung_records", samsungCount).put("journal_records", journalCount).put("partial_refresh", partial)
+                val summary = JSONObject().put("glucose_records", glucoseCount).put("samsung_records", samsungCount).put("health_connect_records", hcCount).put("active_health_source", activeSource.provider).put("journal_records", journalCount).put("partial_refresh", partial)
                 File(folder, "summary.json").writeText(summary.toString(2))
-                File(folder, "summary.md").writeText("血糖 $glucoseCount 条；三星健康 $samsungCount 条；日志 $journalCount 条。\n\n范围：${if (selection.includeHealth) "全部本地整合数据，包括三星已缓存数据和日志" else "指定的 ${selection.sensors.size} 支 CGM 的全部本地历史；不包含三星健康或日志"}。${if (!selection.includeHealth) "本次未刷新三星。" else if (partial) "刷新存在失败或跳过，请查 manifest.json。" else "刷新完成。"}时序共现不能说明因果。\n")
-                File(folder, "README.txt").writeText("JugglucoNG 健康数据 0.3.0\n先读 manifest.json 的 scope/selection 和 summary.json，确认本包是否仅包含指定 CGM。逐行读取 glucose.jsonl、samsung-records.jsonl、journal.jsonl；再按 parent_record_id/series_id 加载 series.jsonl，按 relations.jsonl 关联睡眠。UTC epoch 是比较依据，勿按手机时区平移记录。每日汇总保留三星的本地日期语义，不伪造采样时刻。选中范围的全部数值及日志已保留，未映射字段不能猜单位。glucose=Room 存储 Auto 通道，device_glucose=Raw 通道；recorded-display.jsonl 另外保留实际记录的显示值及通道，uncertainty.jsonl 保留可信区间。应用的后处理显示校准不重复套用。保留失败状态和已有缓存不代表全账户覆盖。文件可能含个人健康和用户输入日志，分享由用户操作。\n")
+                File(folder, "summary.md").writeText("血糖 $glucoseCount 条；三星健康 $samsungCount 条；Health Connect $hcCount 条；日志 $journalCount 条。\n\n范围：${if (selection.includeHealth) "全部本地整合数据，包括两种健康来源已缓存数据和日志（分开标注，勿叠加镜像数据）" else "指定的 ${selection.sensors.size} 支 CGM 的全部本地历史；不包含健康平台数据或日志"}。${if (!selection.includeHealth) "本次未刷新健康平台。" else if (partial) "刷新存在失败或跳过，请查 manifest.json。" else "刷新完成。"}时序共现不能说明因果。\n")
+                File(folder, "README.txt").writeText("JugglucoNG 健康数据 0.4.0\n先读 manifest.json 的 scope/selection 和 summary.json，确认本包是否仅包含指定 CGM。逐行读取 glucose.jsonl、samsung-records.jsonl、health-connect-records.jsonl、journal.jsonl；再按 parent_record_id/series_id 加载 series.jsonl，按 relations.jsonl 关联睡眠。UTC epoch 是比较依据，勿按手机时区平移记录。每日汇总保留三星的本地日期语义，不伪造采样时刻。选中范围的全部数值及日志已保留，未映射字段不能猜单位。glucose=Room 存储 Auto 通道，device_glucose=Raw 通道；recorded-display.jsonl 另外保留实际记录的显示值及通道，uncertainty.jsonl 保留可信区间。应用的后处理显示校准不重复套用。保留失败状态和已有缓存不代表全账户覆盖。文件可能含个人健康和用户输入日志，分享由用户操作。\n")
                 File(folder, "README.txt").appendText("\nglucose-sources.jsonl 给出各血糖来源的目录，按 sensor_alias/source_uid_alias 关联；local_lookup_id 可在本机血糖来源页查询。canonical_sensor_alias 表示解析后的设备名，sensor_alias 保留每个历史存储别名；同一设备可共用 source_uid_alias/local_lookup_id。wear_session_alias 仅表示已知的佩戴周期，null 保持未知，不能按当前探头参数猜旧历史归属。\n")
                 for (name in listOf("record.schema.json", "series.schema.json", "field-catalog.json", "capabilities.json")) {
                     context.assets.open("health-insights/$name").use { input -> File(folder, name).outputStream().use { input.copyTo(it) } }
                 }
+                File(folder, "README.txt").appendText("\nmanifest.health_source.selected_provider 表示当前来源；只刷新此来源。三星与 Health Connect 缓存分开导出，source.provider 标明平台，source.app_id 标明原始应用；其他应用经不同平台镜像的数据不能直接合并或相加。Health Connect 导入不写入血糖表、日志或上传队列，排除已知 Jugg 包的数据。\n")
                 File(folder, "README.txt").appendText("\nrecorded-display 的 timestamp_epoch_ms 是分钟桶；source_record_id/source_timestamp_epoch_ms 仅在同一存储别名、同一分钟内唯一匹配时填写。association_basis 明示这是当前历史的关联推导，不是当时保存的采样 ID；缺失或歧义保持 null，UTC 时间不被平移。Raw 的 channel_provenance 区分当前驱动语义和未知历史参数。quality flags 只提示复核，不改值、不自动删除或作医学判断。三星 metrics 的 metric_provenance 给出 SDK 字段、单位文档及转换规则；未映射内容仍保留原始 SDK 属性及 partial。睡眠分别输出记录区间、SDK 会话时长、已识别睡眠阶段／清醒和未知时长，均为设备估计。sync.returned_count 是上次提交的去重记录数，成功但为空不等于缓存为空；覆盖边界不证明连续采样。\n")
                 val inventory = JSONArray()
                 ZipOutputStream(output.outputStream().buffered()).use { zip ->

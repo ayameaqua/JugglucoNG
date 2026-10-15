@@ -15,7 +15,7 @@
       "type": "object", "additionalProperties": false,
       "required": ["provider", "record_alias"],
       "properties": {
-        "provider": {"enum": ["juggluco", "samsung_health", "journal", "derived"]},
+        "provider": {"enum": ["juggluco", "samsung_health", "health_connect", "journal", "derived"]},
         "app_id": {"type": ["string", "null"]},
         "record_alias": {"type": "string", "minLength": 1},
         "device_alias": {"type": ["string", "null"]},

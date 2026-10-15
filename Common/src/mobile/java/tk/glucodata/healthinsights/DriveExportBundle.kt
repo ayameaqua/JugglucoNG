@@ -83,7 +83,7 @@ internal class DriveExportBundle private constructor(val folder: File, val archi
             .put("records", part.records ?: JSONObject.NULL).put("sha256", part.sha256).put("drive_file_id", remote.id).put("link", remote.link)) }
         return File(folder, "START_HERE.txt").apply { writeText(
             "JugglucoNG 健康数据快照\n\n本次上传已完成，各文件均经过字节数和 MD5 校验。这个目录是一次导出快照，后续采集不会自动更新。\n" +
-            "请先读取 manifest.json.txt、summary.json.txt 和 README.txt.txt，按 manifest 中的 scope/selection 确认范围和数据覆盖。全部数据仅包含本机已有的血糖、日志及三星健康缓存，不代表三星账户全部历史。\n" +
+            "请先读取 manifest.json.txt、summary.json.txt 和 README.txt.txt，按 manifest 中的 scope/selection 确认范围和数据覆盖。全部数据包含本机已有的血糖、日志及两种健康来源缓存。manifest.health_source.selected_provider 是当前来源；samsung-records 与 health-connect-records 分开保存，切勿重复叠加镜像数据。只有选中来源会刷新，不代表平台账户全历史。\n" +
             "*.jsonl.part-XXXX.txt 是逐行 JSON 的文本副本；按原文件名和分段号读取全部分段，不要只读第一段。别名用于关联来源；UTC epoch 是对齐依据，勿平移时间或重复应用校准。\n" +
             "ZIP 是完整原始格式，文本是便于连接器读取的视图；连接器是否实际可读仍取决于它的授权、格式支持和索引状态。链接需要同一账号或已有访问权限，无公开共享。\n\n" +
             "原始 ZIP：${uploaded.first().link}\n原始 ZIP SHA-256：${sha256(archive)}\n\n文本文件清单：\n" + files.toString(2) + "\n"

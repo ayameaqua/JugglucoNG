@@ -112,7 +112,7 @@ internal class HealthTransferViewModel(application: Application) : AndroidViewMo
                 _state.update { it.copy(account = account) }
                 if (target == Action.CONNECT) { _state.update { it.copy(message = "Google 账号已连接；尚未上传任何数据") }; return@launch }
                 val request = checkNotNull(selection)
-                _state.update { it.copy(message = if (request.includeHealth) "正在刷新三星并生成全部整合数据…" else "正在生成指定 CGM 的全部本地历史…") }
+                _state.update { it.copy(message = if (request.includeHealth) "正在刷新选中的健康来源并生成全部整合数据…" else "正在生成指定 CGM 的全部本地历史…") }
                 val file = HealthInsightExport.create(context, coordinator, selection = request)
                 cacheFile = file
                 withContext(Dispatchers.IO) {

@@ -90,7 +90,7 @@ private fun HealthDataTransferScreen(activity: ComponentActivity, model: HealthT
         LazyColumn(Modifier.padding(padding).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             item { Text("数据范围", style = MaterialTheme.typography.titleMedium) }
             item {
-                Row { RadioButton(state.scope == HealthExportSelection.Scope.ALL_DATA, { model.setScope(HealthExportSelection.Scope.ALL_DATA) }, enabled = !state.busy); Column { Text("全部整合数据"); Text("所有 CGM、本地日志及已同步的三星健康数据", style = MaterialTheme.typography.bodySmall) } }
+                Row { RadioButton(state.scope == HealthExportSelection.Scope.ALL_DATA, { model.setScope(HealthExportSelection.Scope.ALL_DATA) }, enabled = !state.busy); Column { Text("全部整合数据"); Text("所有 CGM、本地日志及两种健康来源的已有缓存（分开标注）", style = MaterialTheme.typography.bodySmall) } }
                 Row { RadioButton(state.scope == HealthExportSelection.Scope.CGM_ONLY, { model.setScope(HealthExportSelection.Scope.CGM_ONLY) }, enabled = !state.busy); Column { Text("指定 CGM"); Text("可选一支或多支；包含全部本地历史、Auto／Raw 及来源信息", style = MaterialTheme.typography.bodySmall) } }
             }
             if (state.scope == HealthExportSelection.Scope.CGM_ONLY) {

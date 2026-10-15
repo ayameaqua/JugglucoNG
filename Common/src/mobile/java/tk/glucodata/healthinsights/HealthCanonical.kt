@@ -37,12 +37,12 @@ internal object HealthCanonical {
         val parent = record.getString("record_id")
         fun walk(value: Any?, path: String): Any? {
             if (value is JSONArray) {
-                fun timestamp(obj: JSONObject?) = (obj?.optJSONObject("getStartTime") ?: obj?.optJSONObject("getTimestamp"))?.optString("utc")?.takeIf { it.isNotEmpty() }
+                fun timestamp(obj: JSONObject?) = (obj?.optJSONObject("getStartTime") ?: obj?.optJSONObject("getTimestamp") ?: obj?.optJSONObject("getTime"))?.optString("utc")?.takeIf { it.isNotEmpty() }
                 if ((0 until value.length()).any { timestamp(value.optJSONObject(it)) == null }) {
                     return JSONArray().apply { for (n in 0 until value.length()) put(walk(value.opt(n), "$path.$n")) }
                 }
                 val sid = "$parent:$path"
-                refs.put(JSONObject().put("series_id", sid).put("semantic_type", when { path.contains("Stages") -> "sleep_stages"; path.contains("Route") -> "exercise_route"; path.contains("Log") -> "exercise_log"; path.contains("Timestamp") -> "point_samples"; else -> "interval_summaries" }).put("count", value.length()))
+                refs.put(JSONObject().put("series_id", sid).put("semantic_type", when { path.contains("Stages") -> "sleep_stages"; path.contains("Route") -> "exercise_route"; path.contains("Log") -> "exercise_log"; path.contains("Timestamp") || path.contains("Samples") || path.contains("Deltas") -> "point_samples"; else -> "interval_summaries" }).put("count", value.length()))
                 for (n in 0 until value.length()) {
                     val item = walk(value.opt(n), "$path.$n")
                     val obj = item as? JSONObject

@@ -27,6 +27,7 @@ object WearRoutes {
     const val READINGS = "readings"
     const val SETTINGS = "settings"
     const val EXCHANGE = "exchange"
+    const val PHONE_CONNECTION = "phone_connection"
     const val JOURNAL = "journal"
     const val JOURNAL_ENTRY = "journalentry"
     const val READING_ACTIONS = "readingactions"
@@ -80,6 +81,7 @@ fun WearApp() {
             navController = navController,
             startDestination = WearRoutes.MAIN,
         ) {
+            composable(WearRoutes.PHONE_CONNECTION) { tk.glucodata.ui.screens.PhoneConnectionScreen() }
             composable(WearRoutes.MAIN) {
                 MainScreen(
                     onOpenSettings = { navController.navigate(WearRoutes.SETTINGS) },
@@ -184,6 +186,7 @@ fun WearApp() {
                     onOpenAlerts = { navController.navigate(WearRoutes.ALERTS) },
                     onOpenSensor = { navController.navigate(WearRoutes.SENSOR) },
                     onOpenExchange = { navController.navigate(WearRoutes.EXCHANGE) },
+                    onOpenPhoneConnection = { navController.navigate(WearRoutes.PHONE_CONNECTION) },
                 )
             }
             composable(WearRoutes.EXCHANGE) { ExchangeScreen() }

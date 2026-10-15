@@ -22,6 +22,7 @@ fun SettingsScreen(
     onOpenAlerts: () -> Unit,
     onOpenSensor: () -> Unit,
     onOpenExchange: () -> Unit = {},
+    onOpenPhoneConnection: () -> Unit = {},
 ) {
     ScreenScaffold(timeText = { TimeText() }) {
         ScalingLazyColumn(
@@ -37,6 +38,7 @@ fun SettingsScreen(
             item {
                 WearNavigationRow(stringResource(R.string.sensor), onClick = onOpenSensor)
             }
+            item { WearNavigationRow(stringResource(R.string.wear_phone_connection), onClick = onOpenPhoneConnection) }
             // Reading colours are no longer a watch-local choice: the palette,
             // the band overrides and the "colour values by range" switch all
             // arrive from the phone, so the two surfaces cannot disagree.

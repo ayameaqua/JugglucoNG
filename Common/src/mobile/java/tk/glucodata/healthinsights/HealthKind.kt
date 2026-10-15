@@ -10,7 +10,7 @@ enum class HealthKind(val kind: String, val label: String, val defaultSelected: 
     BLOOD_OXYGEN("blood_oxygen", "血氧", true, false),
     ACTIVITY_SUMMARY("activity_summary", "活动汇总", false, false),
     FLOORS_CLIMBED("floors_climbed", "爬楼层数", false, false),
-    BLOOD_GLUCOSE("blood_glucose", "三星血糖", false, false),
+    BLOOD_GLUCOSE("blood_glucose", "其他来源血糖", false, false),
     BLOOD_PRESSURE("blood_pressure", "血压", false, false),
     BODY_COMPOSITION("body_composition", "身体成分", false, false),
     SLEEP_GOAL("sleep_goal", "睡眠目标", false, false),
@@ -25,6 +25,13 @@ enum class HealthKind(val kind: String, val label: String, val defaultSelected: 
     USER_PROFILE("user_profile", "个人资料", false, true),
     SLEEP_APNEA("sleep_apnea", "睡眠呼吸暂停检测记录", false, false),
     IRREGULAR_HEART_RHYTHM_NOTIFICATION("irregular_heart_rhythm_notification", "心律不齐通知", false, false),
-    BODY_TEMPERATURE("body_temperature", "体温", false, false);
-    companion object { val defaults = entries.filter { it.defaultSelected }.toSet() }
+    BODY_TEMPERATURE("body_temperature", "体温", false, false),
+    RESTING_HEART_RATE("resting_heart_rate", "静息心率", false, false),
+    RESPIRATORY_RATE("respiratory_rate", "呼吸频率", false, false),
+    HEART_RATE_VARIABILITY("heart_rate_variability", "心率变异性（RMSSD）", false, false),
+    VO2_MAX("vo2_max", "最大摄氧量", false, false);
+    companion object {
+        val defaults = entries.filter { it.defaultSelected }.toSet()
+        val samsungKinds = entries.filter { it.ordinal <= BODY_TEMPERATURE.ordinal }.toSet()
+    }
 }

@@ -1,9 +1,10 @@
-# Health data contract 0.1.0
+# Health data contract (record envelope 0.1.0, export manifest 0.4.0)
 
 This is the project data schema version, not the MCP wire-protocol version.
 Examples are synthetic. The Android adapter and ZIP writer implement this envelope;
 real-device integration verification is pending. Unknown SDK fields remain explicit
-under `attributes.sdk_fields` / series `attributes.sdk_value`, with partial normalization.
+under Samsung `attributes.sdk_fields`, HC `attributes.health_connect_fields`, or series
+`attributes.sdk_value`, with partial normalization.
 
 ## One model for UI, exports and MCP
 
@@ -299,3 +300,33 @@ References: [Samsung type operations](https://developer.samsung.com/health/data/
 [ChatGPT custom MCP](https://developers.openai.com/api/docs/guides/custom-mcp-server),
 [ChatGPT endpoint preparation](https://developers.openai.com/plugins/deploy/connect-chatgpt),
 [Secure MCP Tunnel](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels).
+
+
+## Alternative Android health source (manifest 0.4.0)
+
+`health_source.selected_provider` is `samsung_health` or `health_connect`. Only that
+reader is refreshed and shown in the active timeline/analysis. Their retained caches
+are separate; a complete export includes `samsung-records.jsonl` and
+`health-connect-records.jsonl` independently. Do not sum or deduplicate mirrors solely
+by timestamp or value. Provider-namespaced aliases avoid ID collisions but do not prove
+that a measurement is unique across the two platforms. CGM-only exports exclude both.
+
+HC imports preserve absolute instants, original offsets, original source package,
+recording method, typed-unit getters and aliased platform record IDs. No local-time
+correction is applied. Millisecond indices coexist with the full original Instant
+strings. `SkinTemperatureRecord` baseline and deltas remain distinct. Sleep interval,
+estimated known-stage sleep/awake and unclassified durations remain distinct. Heart
+means are arithmetic sample summaries, not time-weighted physiology.
+
+`health_connect_sync` / `health_sync` declare provider, active source, returned counts,
+cache bounds and `deletion_history_gap`. Changes tokens are private transactional state,
+never exported. An expired/rebuilt token can miss prior deletions; the persistent gap
+flag remains even after later successful refreshes. Explicit deletion events remove only
+the corresponding provider cache row. An empty read or lost permission never purges data.
+Without opted-in, granted history permission the reader requests a conservative last
+30 days. Platform permissions may further restrict returned records. Neither returned
+counts nor cached bounds prove complete/continuous account history.
+
+The HC reader has no write operation, no Room glucose/journal insertion, and no link to
+the CGM upload queue. It excludes the current app and known Jugg variants. The existing
+CGM-to-HC blood glucose writer remains independently controlled.

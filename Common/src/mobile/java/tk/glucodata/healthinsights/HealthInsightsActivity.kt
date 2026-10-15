@@ -15,7 +15,9 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import androidx.health.connect.client.PermissionController
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -31,6 +33,17 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 class HealthInsightsActivity : ComponentActivity() {
+    private var healthPermissionResult: CompletableDeferred<Set<String>>? = null
+    private val healthPermissionLauncher = registerForActivityResult(PermissionController.createRequestPermissionResultContract()) { result -> healthPermissionResult?.complete(result) }
+    suspend fun requestHealthConnectPermissions(permissions: Set<String>): Set<String> = withContext(Dispatchers.Main.immediate) {
+        check(healthPermissionResult == null) { "已有健康数据授权请求" }
+        val result = CompletableDeferred<Set<String>>()
+        healthPermissionResult = result
+        try { healthPermissionLauncher.launch(permissions); result.await() }
+        finally { if(healthPermissionResult === result) healthPermissionResult = null }
+    }
+    override fun onDestroy() { healthPermissionResult?.cancel(); super.onDestroy() }
+
     override fun onCreate(savedInstanceState: Bundle?) { super.onCreate(savedInstanceState); setContent { JugglucoTheme { Insights(this) } } }
 }
 
@@ -39,6 +52,8 @@ private fun Insights(activity: HealthInsightsActivity) {
     val coordinator = remember { HealthInsightCoordinator.get(activity) }
     val scope = rememberCoroutineScope()
     var selected by remember { mutableStateOf(coordinator.selected()) }
+    var healthSource by remember { mutableStateOf(coordinator.source()) }
+    var readHistory by remember { mutableStateOf(coordinator.settings.getBoolean("hc_read_history", false)) }
     var enabled by remember { mutableStateOf(coordinator.settings.getBoolean("enabled", false)) }
     var days by remember { mutableIntStateOf(coordinator.settings.getInt("days", 30)) }
     var customDays by remember { mutableStateOf(days.toString()) }
@@ -108,7 +123,7 @@ private fun Insights(activity: HealthInsightsActivity) {
                             } ?: "完整记录已缓存", style = MaterialTheme.typography.bodySmall)
                         } }
                     }
-                    if (health.isEmpty()) item { Text("尚无本地三星数据。到来源页启用、授权并同步；睡眠、运动会与血糖按时间关联。") }
+                    if (health.isEmpty()) item { Text("此来源尚无本地健康数据。到来源页选择、启用、授权并同步；睡眠、运动会与血糖按时间关联。") }
                 } else if (tab == 1) {
                     item {
                         Text("时间共现", style = MaterialTheme.typography.titleLarge)
@@ -143,24 +158,41 @@ private fun Insights(activity: HealthInsightsActivity) {
                     }
                 } else {
                     item {
-                        Row { Text("直接读取三星健康", Modifier.weight(1f)); Switch(enabled, { enabled = it; coordinator.settings.edit().putBoolean("enabled", it).apply() }, enabled = !busy) }
+                        Text("健康数据来源（二选一）", style = MaterialTheme.typography.titleMedium)
+                        HealthDataSource.entries.forEach { source ->
+                            FilterChip(selected = healthSource == source, enabled = !busy, label = { Text(source.label) }, onClick = {
+                                if(healthSource != source) scope.launch {
+                                    busy = true
+                                    try { coordinator.selectSource(source); healthSource = source; selected = coordinator.selected(); permissionGranted = emptySet(); load(); message = "已切换来源，旧缓存保留。只同步当前来源，请按需授权并手动同步。" }
+                                    finally { busy = false }
+                                }
+                            })
+                        }
+                        Row { Text("读取健康数据", Modifier.weight(1f)); Switch(enabled, { enabled = it; coordinator.settings.edit().putBoolean("enabled", it).apply() }, enabled = !busy) }
                         Text(coordinator.adapter.availabilityMessage, style = MaterialTheme.typography.bodySmall)
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { listOf(3, 7, 30, 90).forEach { d -> FilterChip(days == d, { days = d; customDays = d.toString(); coordinator.settings.edit().putInt("days", d).apply() }, enabled = !busy, label = { Text("${d}天") }) } }
                         OutlinedTextField(customDays, { text ->
                             customDays = text.filter(Char::isDigit).take(4)
                             customDays.toIntOrNull()?.takeIf { it in 1..3650 }?.let { days = it; coordinator.settings.edit().putInt("days", it).apply() }
                         }, enabled = !busy, singleLine = true, label = { Text("自定义读取天数（1–3650）") }, isError = customDays.toIntOrNull() !in 1..3650)
-                        Text("导出保留全部已缓存数据。扩大读取范围会增加首次同步时间。位置和个人资料需单独选中。", style = MaterialTheme.typography.bodySmall)
+                        Text("只刷新选中的来源。导出保留两个来源已有缓存，并标明当前来源；分析页只使用当前来源，避免混合计算。", style = MaterialTheme.typography.bodySmall)
+                        if(healthSource == HealthDataSource.HEALTH_CONNECT) {
+                            Row { Checkbox(readHistory, { readHistory = it; coordinator.settings.edit().putBoolean("hc_read_history",it).apply() }, enabled = !busy && coordinator.adapter.supportsHistoryPermission); Column {
+                                Text("读取更早历史（单独授权）")
+                                Text(if(coordinator.adapter.supportsHistoryPermission) "超过 30 天时请勾选并重新授权；实际可读范围由系统决定。" else "当前系统暂未提供额外历史读取能力，默认请求近 30 天。", style = MaterialTheme.typography.bodySmall)
+                            } }
+                            Text("Health Connect 中必须已有其他应用写入的记录；授权不会补出三星健康未同步到系统的数据。Jugg 自己写入的血糖不会回读。",style = MaterialTheme.typography.bodySmall)
+                        } else Text("位置和个人资料需单独选中及授权。",style = MaterialTheme.typography.bodySmall)
                     }
                     items(HealthKind.entries) { kind -> Row(Modifier.fillMaxWidth()) {
-                        Checkbox(kind in selected, { checked -> selected = if (checked) selected + kind else selected - kind; coordinator.settings.edit().putStringSet("selected", selected.map { it.name }.toSet()).apply() }, enabled = !busy)
-                        Column { Text(kind.label + if (kind.separateOptIn) "（单独授权）" else ""); Text(if (kind in permissionGranted) "已获得读取权限" else "未获得读取权限", style = MaterialTheme.typography.bodySmall) }
+                        Checkbox(kind in selected, { checked -> selected = if (checked) selected + kind else selected - kind; coordinator.saveSelected(selected) }, enabled = !busy && kind in coordinator.adapter.supportedKinds)
+                        Column { Text(kind.label + if (kind.separateOptIn) "（单独授权）" else ""); Text(if(kind !in coordinator.adapter.supportedKinds) "此来源不支持" else if (kind in permissionGranted) "已获得读取权限" else "未获得读取权限", style = MaterialTheme.typography.bodySmall) }
                     } }
                     item { Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(enabled = !busy && enabled && coordinator.adapter.available && selected.isNotEmpty(), onClick = { scope.launch { busy = true; try { permissionGranted = coordinator.adapter.request(activity, selected); message = "授权完成；可手动同步" } catch (ex: Exception) { message = "授权失败：${ex.message}" } finally { busy = false } } }) { Text("请求读取授权") }
                         OutlinedButton(enabled = !busy, onClick = { refresh(true) }) { Text("手动同步") }
                     } }
-                    items(states) { state -> Text("${HealthKind.entries.firstOrNull { it.kind == state.optString("kind") }?.label ?: state.optString("kind")}：${statusLabel(state.optString("status"))}\n最近成功：${state.optLong("last_success_epoch_ms").takeIf { it > 0 }?.let { localTime(Instant.ofEpochMilli(it).toString()) } ?: "暂无"}\n${state.optString("error").takeUnless { it == "null" } ?: ""}", style = MaterialTheme.typography.bodySmall) }
+                    items(states) { state -> Text("${HealthKind.entries.firstOrNull { it.kind == state.optString("kind") }?.label ?: state.optString("kind")}：${statusLabel(state.optString("status"))}\n最近成功：${state.optLong("last_success_epoch_ms").takeIf { it > 0 }?.let { localTime(Instant.ofEpochMilli(it).toString()) } ?: "暂无"}\n${state.optString("error").takeUnless { it == "null" } ?: ""}\n${state.optString("deletion_history_gap").takeUnless { it == "null" } ?: ""}", style = MaterialTheme.typography.bodySmall) }
                 }
             }
             Button(modifier = Modifier.fillMaxWidth().padding(16.dp), enabled = !busy, onClick = {
@@ -171,7 +203,7 @@ private fun Insights(activity: HealthInsightsActivity) {
 }
 
 private fun metricLabel(key: String) = mapOf("heart_rate" to "心率", "heart_rate_min" to "最低心率", "heart_rate_max" to "最高心率", "oxygen_saturation" to "血氧", "skin_temperature" to "皮肤温度", "duration" to "时长", "steps" to "步数")[key] ?: key
-private fun statusLabel(key: String) = mapOf("success" to "已更新", "error" to "读取失败", "partial" to "覆盖不完整", "disabled" to "读取已关闭", "unavailable" to "当前不可用", "permission_denied" to "未获授权", "association_permission" to "随运动记录读取", "exercise_selection_missing" to "请同时选择运动记录")[key] ?: key
+private fun statusLabel(key: String) = mapOf("success" to "已更新", "history_limited" to "更早历史受限", "permission_partial" to "部分类型已授权", "unsupported" to "当前系统不支持", "error" to "读取失败", "partial" to "覆盖不完整", "disabled" to "读取已关闭", "unavailable" to "当前不可用", "permission_denied" to "未获授权", "association_permission" to "随运动记录读取", "exercise_selection_missing" to "请同时选择运动记录")[key] ?: key
 
 private fun localTime(value: String): String = runCatching { DateTimeFormatter.ofPattern("MM-dd HH:mm XXX").withZone(ZoneId.systemDefault()).format(Instant.parse(value)) }.getOrDefault(value)
 private fun displayGlucose(mgdl: Float): String = GlucoseFormatter.formatFromMgDl(mgdl, GlucoseFormatter.isMmolApp()) + if (GlucoseFormatter.isMmolApp()) " mmol/L" else " mg/dL"

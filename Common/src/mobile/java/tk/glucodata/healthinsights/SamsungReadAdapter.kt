@@ -4,13 +4,17 @@ import android.app.Activity
 import android.content.Context
 import java.time.Instant
 
-interface SamsungReadAdapter {
+interface HealthReadAdapter {
     val available: Boolean
     val availabilityMessage: String
+    val supportedKinds: Set<HealthKind> get() = HealthKind.samsungKinds
+    val supportsHistoryPermission: Boolean get() = false
     suspend fun granted(kinds: Set<HealthKind>): Set<HealthKind>
     suspend fun request(activity: Activity, kinds: Set<HealthKind>): Set<HealthKind>
     suspend fun read(kinds: Set<HealthKind>, from: Instant, until: Instant, store: HealthInsightStore, progress: (String) -> Unit)
 }
+
+typealias SamsungReadAdapter = HealthReadAdapter
 
 internal fun samsungInstalled(context: Context): Boolean = runCatching {
     context.packageManager.getPackageInfo("com.sec.android.app.shealth", 0)

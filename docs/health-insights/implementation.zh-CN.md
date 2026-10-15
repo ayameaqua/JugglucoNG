@@ -95,3 +95,16 @@ release 构建和签名/ABI 检查；测试替身验证未安装、拒绝权限�
 
 仍需用户 S23 Ultra 实测：DUB 包 SDK 授权、各可用类型/地域能力、完整嵌套序列、读取耗时、
 保存/分享和 ChatGPT 对真实 ZIP 的读取。未接入这台手机，不宣称已完成真机兼容性验证。
+
+
+## 2026-10-15：普通 Android 来源和手表
+
+健康读取入口现在支持 Samsung Health / Health Connect 二选一；旧三星选择与缓存兼容保留，
+新安装默认 HC。全量导出 manifest 0.4.0 分开保留两个平台的流，当前时间线只使用选中平台。
+新增 HC reader、类型映射、授权、分页、Changes 去重/删除/失效恢复及独立数据库。三星 SDK
+仍为本地可选依赖，默认构建与手表不带 SDK；原血糖→HC 写入逻辑未修改。
+
+Wear 沿用现有血糖显示、提醒、同步与复杂功能，新增手机连接与手动同步页。提供 modernWear
+release 配置以移除旧 WatchFaceService；新版 Wear 使用兼容表盘加复杂功能。此次交付的是
+手机/手表相同 DUB 包名与证书的应用，不承诺旧自绘表盘在 Watch8 上可用。
+具体入口、构建、验证范围和设备验收见 [Android 与 Watch8](android-health-and-watch.zh-CN.md)。

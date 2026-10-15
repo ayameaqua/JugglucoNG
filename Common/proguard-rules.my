@@ -114,3 +114,7 @@
 # Optional personal Samsung adapter serializes public DTO getters/field descriptors.
 -keep class com.samsung.android.sdk.health.data.** { *; }
 -keep class tk.glucodata.healthinsights.JsonValue { *; }
+
+# Typed Health Connect export reflects public DTO getters; retain their API names.
+-keep class androidx.health.connect.client.records.** { public *; }
+-keep class androidx.health.connect.client.units.** { public *; }

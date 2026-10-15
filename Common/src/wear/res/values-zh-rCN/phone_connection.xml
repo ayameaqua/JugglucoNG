@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="wear_phone_connection">手机连接与同步</string>
+    <string name="wear_phone_setup">先在 Galaxy Wearable 配对，安装相互匹配的手机／手表版，再在手机 Jugg 的数据交换设置中开启 Wear OS。采集可继续由手机负责。</string>
+    <string name="wear_phone_query_failed">暂时无法查询手机连接，请刷新重试。</string>
+    <string name="wear_phone_gms_missing">Google Play 服务不可用。当前手机同步通道需要两端均有可用服务。</string>
+    <string name="wear_phone_checking">正在查询连接…</string>
+    <string name="wear_phone_no_peer">尚未发现手机，请检查配对和手机端 Wear OS 开关。</string>
+    <string name="wear_phone_peers">已连接设备：%1$s</string>
+    <string name="wear_phone_no_sample">暂无血糖采样。</string>
+    <string name="wear_phone_latest_sample">最新采样：%1$s</string>
+    <string name="wear_phone_refresh">刷新连接状态</string>
+    <string name="wear_phone_sync">向手机请求同步</string>
+    <string name="wear_phone_sync_requested">已请求同步，等待手机数据；发起请求不代表数据已送达。</string>
+    <string name="wear_phone_notifications_on">应用通知已开启，请在提醒页面设置血糖提醒。</string>
+    <string name="wear_phone_notifications_off">应用通知已关闭，接收血糖提醒需要开启通知。</string>
+    <string name="wear_phone_notification_settings">通知设置</string>
+    <string name="wear_phone_face_help">Watch8 等新版 Wear OS 可在兼容表盘中添加 Jugg 血糖复杂功能。此手表版提供血糖应用、提醒和复杂功能。</string>
+</resources>

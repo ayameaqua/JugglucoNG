@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools">
+    <!-- Modern Wear OS uses WFF faces. Keep the viewer, alarms, sync and complications. -->
+    <application>
+        <service android:name="tk.glucodata.watchface.WatchFaceService" tools:node="remove" />
+        <activity android:name="tk.glucodata.watchface.editor.WatchFaceConfigActivity" tools:node="remove" />
+    </application>
+</manifest>

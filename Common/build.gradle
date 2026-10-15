@@ -329,6 +329,10 @@ android {
             java.srcDirs += ['src/wearSi/java']
             jniLibs.srcDirs += ['src/wearSi/jniLibs']
         }
+        if (providers.gradleProperty('modernWear').orElse('false').get().toBoolean()) {
+            wearReleasedub.manifest.srcFile 'src/wearModern/AndroidManifest.xml'
+            wearRelease.manifest.srcFile 'src/wearModern/AndroidManifest.xml'
+        }
         // The exported Room schemas are read by MigrationTestHelper through the
         // variant's assets (plan task H3). Debug only: release never needs them,
         // and unit tests run against debug.

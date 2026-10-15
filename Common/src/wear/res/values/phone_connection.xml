@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="wear_phone_connection">Phone connection &amp; sync</string>
+    <string name="wear_phone_setup">Pair in Galaxy Wearable first. Install matching Jugg phone and watch editions, then enable Wear OS in the phone app’s exchange settings. Phone sampling can stay on the phone.</string>
+    <string name="wear_phone_query_failed">Unable to check phone connection. Try refreshing.</string>
+    <string name="wear_phone_gms_missing">Google Play services are unavailable. The current phone sync transport requires them on both devices.</string>
+    <string name="wear_phone_checking">Checking connection…</string>
+    <string name="wear_phone_no_peer">No phone detected. Check pairing and the phone’s Wear OS switch.</string>
+    <string name="wear_phone_peers">Connected devices: %1$s</string>
+    <string name="wear_phone_no_sample">No glucose samples yet.</string>
+    <string name="wear_phone_latest_sample">Latest sample: %1$s</string>
+    <string name="wear_phone_refresh">Refresh status</string>
+    <string name="wear_phone_sync">Request phone sync</string>
+    <string name="wear_phone_sync_requested">Sync requested. Wait for samples from the phone; requesting is not confirmation of delivery.</string>
+    <string name="wear_phone_notifications_on">App notifications are enabled. Set glucose alerts in Alerts.</string>
+    <string name="wear_phone_notifications_off">App notifications are disabled. Enable them to receive glucose alerts.</string>
+    <string name="wear_phone_notification_settings">Notification settings</string>
+    <string name="wear_phone_face_help">On Galaxy Watch8 / modern Wear OS, add a Jugg glucose complication to a compatible watch face. This app edition provides the viewer, alerts and complications.</string>
+</resources>
